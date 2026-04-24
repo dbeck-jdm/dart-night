@@ -324,7 +324,9 @@ function setSyncStatus(s) {
 
 async function save() {
   setSyncStatus('saving');
-  try { await set(stateRef, S); setSyncStatus('live'); }
+  // Firebase rejects undefined values — sanitize by round-tripping through JSON
+  const clean = JSON.parse(JSON.stringify(S, (k,v) => v === undefined ? null : v));
+  try { await set(stateRef, clean); setSyncStatus('live'); }
   catch(e) { setSyncStatus('error'); console.error(e); }
 }
 
@@ -439,7 +441,7 @@ function renderSetup() {
         </label>
       </div>
     </div>
-    <div style="margin-top:20px;text-align:center;color:var(--muted);font-size:0.68rem;letter-spacing:1px;">v1.2 · Built 2026-04-24 13:27 EDT</div>`;
+    <div style="margin-top:20px;text-align:center;color:var(--muted);font-size:0.68rem;letter-spacing:1px;">v1.2 · Built 2026-04-24 13:34 EDT</div>`;
 }
 
 let _pTimer=null, _nnTimer=null;
@@ -927,8 +929,8 @@ window._saveNight=()=>{
     rrPts:[...rPts],
     bracketPts:[...bPts],
     games:(S.games||[]).map(g=>({type:g.type,players:[...g.players],pts:g.pts,winnerId:g.winnerId})),
-    rrMatches:(S.rr.matches||[]).map(m=>({p1:m.p1,p2:m.p2,winner:m.winner,skipped:m.skipped||false,leg:m.leg})),
-    bracketMatches:(S.bracket.matches||[]).map(m=>({label:m.label,p1:m.p1,p2:m.p2,winner:m.winner,loser:m.loser,round:m.round})),
+    rrMatches:(S.rr.matches||[]).map(m=>({p1:m.p1,p2:m.p2,winner:m.winner??null,skipped:m.skipped||false,leg:m.leg||1})),
+    bracketMatches:(S.bracket.matches||[]).map(m=>({label:m.label,p1:m.p1??null,p2:m.p2??null,winner:m.winner??null,loser:m.loser??null,round:m.round})),
     bracketPodium:[...(S.bracket.podium||[])],
   };
   S.history.push(nightRecord);
