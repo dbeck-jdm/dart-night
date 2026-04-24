@@ -435,7 +435,7 @@ function renderSetup() {
         </label>
       </div>
     </div>
-    <div style="margin-top:20px;text-align:center;color:var(--muted);font-size:0.68rem;letter-spacing:1px;">v1.2 · Built 2026-04-24 12:15 EDT</div>`;
+    <div style="margin-top:20px;text-align:center;color:var(--muted);font-size:0.68rem;letter-spacing:1px;">v1.2 · Built 2026-04-24 12:19 EDT</div>`;
 }
 
 let _pTimer=null, _nnTimer=null;
@@ -927,18 +927,24 @@ window._saveNight=()=>{
     bracketMatches:(S.bracket.matches||[]).map(m=>({label:m.label,p1:m.p1,p2:m.p2,winner:m.winner,loser:m.loser,round:m.round})),
     bracketPodium:[...(S.bracket.podium||[])],
   };
+  console.log('SAVE NIGHT - record:', JSON.stringify(nightRecord));
+  console.log('SAVE NIGHT - history before push:', S.history.length);
   S.history.push(nightRecord);
+  console.log('SAVE NIGHT - history after push:', S.history.length);
   S.active=false;
   S.games=[];
   S.nightName='';
   S.nightDate='';
   S.rr={going:false,rounds:1,matches:[],done:false};
   S.bracket={going:false,seeds:[],losses:{},matches:[],done:false,podium:[]};
-  save();
+  console.log('SAVE NIGHT - about to save to Firebase');
+  save().then(()=>{
+    console.log('SAVE NIGHT - Firebase save complete');
+    console.log('SAVE NIGHT - S.history.length after save:', S.history.length);
+  }).catch(e=>console.error('SAVE NIGHT - Firebase save error:', e));
   toast('Night saved! 🎉');
   updateHeader();
   render();
-  // Switch to history tab to confirm
   const histTab=document.querySelectorAll('.tab')[3];
   if(histTab) histTab.click();
 };
