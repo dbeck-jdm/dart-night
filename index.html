@@ -8,12 +8,12 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
   :root{--bg:#0f0f0f;--surface:#1a1a1a;--surface2:#242424;--border:#2e2e2e;--accent:#e8c547;--accent2:#e05c2a;--text:#f0ede6;--muted:#888;--green:#4caf7d;--red:#e05c2a;}
-  .theme-gold{--accent:#e8c547;--accent2:#e05c2a;}
-  .theme-blue{--accent:#4a9eff;--accent2:#7a5af8;}
-  .theme-green{--accent:#4caf7d;--accent2:#2dd4bf;}
-  .theme-red{--accent:#ff6b6b;--accent2:#ff9f43;}
-  .theme-purple{--accent:#bf7af0;--accent2:#e05c8a;}
-  .theme-teal{--accent:#26c6da;--accent2:#e05c2a;}
+  .theme-gold{--accent:#e8c547 !important;--accent2:#e05c2a !important;}
+  .theme-blue{--accent:#4a9eff !important;--accent2:#7a5af8 !important;}
+  .theme-green{--accent:#4caf7d !important;--accent2:#2dd4bf !important;}
+  .theme-red{--accent:#ff6b6b !important;--accent2:#ff9f43 !important;}
+  .theme-purple{--accent:#bf7af0 !important;--accent2:#e05c8a !important;}
+  .theme-teal{--accent:#26c6da !important;--accent2:#e05c2a !important;}
   .theme-chooser{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:4px;}
   .theme-swatch{padding:12px 6px;border-radius:8px;border:2px solid var(--border);background:var(--surface2);cursor:pointer;text-align:center;transition:all 0.15s;}
   .theme-swatch:hover{border-color:var(--accent);}
@@ -289,6 +289,11 @@ function PLAYER_COLORS(){ return getTheme().p; }
 function applyTheme(key){
   const t=THEMES[key]||THEMES.gold;
   const el=document.documentElement;
+  // Remove all theme classes first
+  Object.keys(THEMES).forEach(k=>el.classList.remove('theme-'+k));
+  // Apply new theme class
+  el.classList.add('theme-'+key);
+  // Also set inline CSS variables as fallback
   el.style.setProperty('--accent',t.a);
   el.style.setProperty('--accent2',t.b);
 }
@@ -435,7 +440,7 @@ function renderSetup() {
         </label>
       </div>
     </div>
-    <div style="margin-top:20px;text-align:center;color:var(--muted);font-size:0.68rem;letter-spacing:1px;">v1.2 · Built 2026-04-24 13:18 EDT</div>`;
+    <div style="margin-top:20px;text-align:center;color:var(--muted);font-size:0.68rem;letter-spacing:1px;">v1.2 · Built 2026-04-24 13:22 EDT</div>`;
 }
 
 let _pTimer=null, _nnTimer=null;
