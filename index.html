@@ -365,7 +365,18 @@ function renderSetup() {
     </div>
     <button class="btn btn-primary btn-full" onclick="window._startNight()">START NIGHT</button>
     <div style="margin-top:8px;"><button class="btn btn-danger btn-full btn-sm" onclick="window._resetAll()">RESET ALL DATA</button></div>
-    <div style="margin-top:20px;text-align:center;color:var(--muted);font-size:0.68rem;letter-spacing:1px;">v1.0 · Built 2026-04-24 15:31 UTC</div>`;
+    <div class="card" style="margin-top:12px;">
+      <h3>Backup & Restore</h3>
+      <p style="font-size:0.78rem;color:var(--muted);margin-bottom:10px;line-height:1.6;">Export saves all history and settings to a JSON file. Import restores from a previous export.</p>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-secondary btn-sm" style="flex:1" onclick="window._exportData()">⬇ Export</button>
+        <label style="flex:1;cursor:pointer;">
+          <span class="btn btn-secondary btn-sm" style="width:100%;display:inline-flex;align-items:center;justify-content:center;gap:5px;">⬆ Import</span>
+          <input type="file" accept=".json" style="display:none" onchange="window._importData(this)"/>
+        </label>
+      </div>
+    </div>
+    <div style="margin-top:20px;text-align:center;color:var(--muted);font-size:0.68rem;letter-spacing:1px;">v1.1 · Built 2026-04-24 11:48 EDT</div>`;
 }
 
 let _pTimer=null, _nnTimer=null;
@@ -383,7 +394,51 @@ window._startNight=()=>{
   document.querySelectorAll('.tab')[0].click();
 };
 
-window._resetAll=()=>{
+window._exportData=()=>{
+  const exportObj={
+    exportedAt:new Date().toLocaleString('en-US',{timeZone:'America/Toronto'})+' EDT',
+    version:'1.1',
+    players:S.players,
+    history:S.history||[],
+  };
+  const blob=new Blob([JSON.stringify(exportObj,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download=`dartnight-export-${new Date().toISOString().slice(0,10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast('Exported! 📁');
+};
+
+window._importData=input=>{
+  const file=input.files[0];
+  if(!file)return;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      const data=JSON.parse(e.target.result);
+      if(!data.history||!data.players){toast('Invalid export file');return;}
+      if(!confirm(`Import ${data.history.length} night(s) from ${data.exportedAt||'unknown date'}? This will merge with existing history.`))return;
+      // Merge history — avoid duplicates by name+date
+      const existing=S.history||[];
+      const existingKeys=new Set(existing.map(n=>`${n.name}|${n.date}`));
+      const newNights=data.history.filter(n=>!existingKeys.has(`${n.name}|${n.date}`));
+      S.history=[...existing,...newNights];
+      // Restore players if current are defaults
+      if(data.players&&S.players.every(p=>p.startsWith('Player '))){
+        S.players=data.players;
+      }
+      save();toast(`Imported ${newNights.length} new night(s)! 🎉`);
+    }catch(err){
+      toast('Failed to read file');console.error(err);
+    }
+  };
+  reader.readAsText(file);
+  input.value='';
+};
   if(!confirm('Reset everything including history? Clears data for ALL users.'))return;
   S=fresh();save();toast('Reset complete');
 };
