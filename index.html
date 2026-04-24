@@ -8,6 +8,20 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
   :root{--bg:#0f0f0f;--surface:#1a1a1a;--surface2:#242424;--border:#2e2e2e;--accent:#e8c547;--accent2:#e05c2a;--text:#f0ede6;--muted:#888;--green:#4caf7d;--red:#e05c2a;}
+  .theme-gold{--accent:#e8c547;--accent2:#e05c2a;}
+  .theme-blue{--accent:#4a9eff;--accent2:#7a5af8;}
+  .theme-green{--accent:#4caf7d;--accent2:#2dd4bf;}
+  .theme-red{--accent:#ff6b6b;--accent2:#ff9f43;}
+  .theme-purple{--accent:#bf7af0;--accent2:#e05c8a;}
+  .theme-teal{--accent:#26c6da;--accent2:#e05c2a;}
+  .theme-chooser{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:4px;}
+  .theme-swatch{padding:12px 6px;border-radius:8px;border:2px solid var(--border);background:var(--surface2);cursor:pointer;text-align:center;transition:all 0.15s;}
+  .theme-swatch:hover{border-color:var(--accent);}
+  .theme-swatch.sel{border-color:var(--accent);background:#1e1c0f;}
+  .theme-dot{width:18px;height:18px;border-radius:50%;margin:0 auto 4px;display:flex;align-items:center;justify-content:center;gap:3px;}
+  .theme-dot span{width:8px;height:8px;border-radius:50%;display:inline-block;}
+  .theme-lbl{font-size:0.7rem;font-weight:700;color:var(--muted);letter-spacing:0.5px;}
+  .theme-swatch.sel .theme-lbl{color:var(--text);}
   *{box-sizing:border-box;margin:0;padding:0;}
   body{background:var(--bg);color:var(--text);font-family:'Barlow',sans-serif;min-height:100vh;overflow-x:hidden;}
   body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;opacity:0.35;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");}
@@ -220,6 +234,26 @@
   </div>
 </div></div>
 
+<!-- Night Summary Modal -->
+<div class="modal-overlay" id="mSummary"><div class="modal" style="max-width:420px;">
+  <h3>NIGHT SUMMARY</h3>
+  <div class="sub" id="mSumSub"></div>
+  <div id="mSumContent"></div>
+  <div class="modal-btns" style="margin-top:14px;">
+    <button class="btn btn-primary btn-full" onclick="closeM('mSummary')">CLOSE</button>
+  </div>
+</div></div>
+
+<!-- RR Confirm Modal -->
+<div class="modal-overlay" id="mRRConfirm"><div class="modal">
+  <h3>START ROUND ROBIN?</h3>
+  <div class="sub">This will lock the casual game list. You can still add games after.</div>
+  <div class="modal-btns">
+    <button class="btn btn-secondary" style="flex:1" onclick="closeM('mRRConfirm')">NOT YET</button>
+    <button class="btn btn-primary" style="flex:1" onclick="window._openFormatM()">LET'S GO</button>
+  </div>
+</div></div>
+
 <div class="toast" id="toast"></div>
 
 <script type="module">
@@ -242,7 +276,22 @@ const stateRef = ref(db, 'dartnight/state');
 
 const GAME_TYPES = ['Cricket','Shanghai','Halve-It','Gotcha','Hammer Cricket','Killer','301'];
 const PAIRS = [[0,1],[0,2],[0,3],[1,2],[1,3],[2,3]];
-const PLAYER_COLORS = ['#e8c547','#e05c2a','#4caf7d','#7a9af0'];
+const THEMES = {
+  gold:   { name:'Gold',   a:'#e8c547', b:'#e05c2a', p:['#e8c547','#e05c2a','#4caf7d','#7a9af0'] },
+  blue:   { name:'Blue',   a:'#4a9eff', b:'#7a5af8', p:['#4a9eff','#7a5af8','#4caf7d','#e8c547'] },
+  green:  { name:'Green',  a:'#4caf7d', b:'#2dd4bf', p:['#4caf7d','#2dd4bf','#e8c547','#ff6b6b'] },
+  red:    { name:'Red',    a:'#ff6b6b', b:'#ff9f43', p:['#ff6b6b','#ff9f43','#4caf7d','#4a9eff'] },
+  purple: { name:'Purple', a:'#bf7af0', b:'#e05c8a', p:['#bf7af0','#e05c8a','#4caf7d','#e8c547'] },
+  teal:   { name:'Teal',   a:'#26c6da', b:'#e05c2a', p:['#26c6da','#4caf7d','#e8c547','#ff6b6b'] },
+};
+function getTheme(){ return THEMES[S.theme||'gold']||THEMES.gold; }
+function PLAYER_COLORS(){ return getTheme().p; }
+function applyTheme(key){
+  const t=THEMES[key]||THEMES.gold;
+  const el=document.documentElement;
+  el.style.setProperty('--accent',t.a);
+  el.style.setProperty('--accent2',t.b);
+}
 
 function fresh() {
   return {
@@ -278,6 +327,7 @@ async function save() {
 onValue(stateRef, snap => {
   setSyncStatus('live');
   const data = snap.val();
+  if(data&&data.theme) applyTheme(data.theme);
   if(data) {
     S = data;
     S.games = S.games||[];
@@ -366,6 +416,15 @@ function renderSetup() {
     <button class="btn btn-primary btn-full" onclick="window._startNight()">START NIGHT</button>
     <div style="margin-top:8px;"><button class="btn btn-danger btn-full btn-sm" onclick="window._resetAll()">RESET ALL DATA</button></div>
     <div class="card" style="margin-top:12px;">
+      <h3>Color Theme</h3>
+      <div class="theme-chooser">${Object.entries(THEMES).map(([k,t])=>`
+        <div class="theme-swatch ${(S.theme||'gold')===k?'sel':''}" onclick="window._setTheme('${k}')">
+          <div class="theme-dot"><span style="background:${t.a}"></span><span style="background:${t.b}"></span></div>
+          <div class="theme-lbl">${t.name}</div>
+        </div>`).join('')}
+      </div>
+    </div>
+    <div class="card" style="margin-top:0px;">
       <h3>Backup & Restore</h3>
       <p style="font-size:0.78rem;color:var(--muted);margin-bottom:10px;line-height:1.6;">Export saves all history and settings to a JSON file. Import restores from a previous export.</p>
       <div style="display:flex;gap:8px;">
@@ -376,7 +435,7 @@ function renderSetup() {
         </label>
       </div>
     </div>
-    <div style="margin-top:20px;text-align:center;color:var(--muted);font-size:0.68rem;letter-spacing:1px;">v1.1 · Built 2026-04-24 11:48 EDT</div>`;
+    <div style="margin-top:20px;text-align:center;color:var(--muted);font-size:0.68rem;letter-spacing:1px;">v1.2 · Built 2026-04-24 12:04 EDT</div>`;
 }
 
 let _pTimer=null, _nnTimer=null;
@@ -440,6 +499,14 @@ window._importData=input=>{
   input.value='';
 };
 
+window._setTheme=key=>{
+  S.theme=key;
+  applyTheme(key);
+  save();
+  renderSetup();
+  toast(`Theme updated!`);
+};
+
 window._resetAll=()=>{
   S=fresh();save();toast('Reset complete');
 };
@@ -484,7 +551,7 @@ function renderNight() {
 
   html+=`<div class="sec-label" style="margin-top:16px;">Round Robin <span style="font-size:0.63rem;color:var(--muted);font-family:'Barlow',sans-serif;letter-spacing:0;font-weight:400;margin-left:4px;">1v1 · Seeds the bracket</span></div>`;
   if(!S.rr.going&&!S.rr.done){
-    html+=`<div class="card" style="text-align:center;"><p style="font-size:0.8rem;color:var(--muted);margin-bottom:10px;">Everyone plays everyone. Ready when you are.</p><button class="btn btn-primary" onclick="window._openFormatM()">SELECT FORMAT & START</button></div>`;
+    html+=`<div class="card" style="text-align:center;"><p style="font-size:0.8rem;color:var(--muted);margin-bottom:10px;">Everyone plays everyone. Ready when you are.</p><button class="btn btn-primary" onclick="document.getElementById('mRRConfirm').classList.add('open')">SELECT FORMAT & START</button></div>`;
   } else if(S.rr.going&&!S.rr.done){
     const played=(S.rr.matches||[]).filter(m=>m.winner!=null||m.skipped).length;
     html+=`<div style="padding:9px 11px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:7px;display:flex;justify-content:space-between;align-items:center;"><span style="font-size:0.8rem;color:var(--muted);">${S.rr.rounds}x format in progress</span><span style="font-family:'Bebas Neue',sans-serif;color:var(--accent);">${played}/${(S.rr.matches||[]).length}</span></div>`;
@@ -783,13 +850,64 @@ function renderHistory(){
   const el=document.getElementById('section-history');
   if(!(S.history||[]).length){el.innerHTML=`<div class="empty-state"><div class="big">📅</div><p>No completed nights yet.</p></div>`;return;}
   let html='';
-  [...(S.history||[])].reverse().forEach(n=>{
+  [...(S.history||[])].reverse().forEach((n,idx2)=>{
     const ranked=[...Array(n.players.length).keys()].sort((a,b)=>n.scores[b]-n.scores[a]);
-    html+=`<div class="hist-card"><div class="hist-head"><div><div class="hist-title">${n.name||n.date}</div><div style="font-size:0.63rem;color:var(--muted);margin-top:1px;">${n.date||''}</div></div><span style="font-size:0.76rem;color:var(--muted);">🏆 ${n.players[ranked[0]]}</span></div>
-    <div class="hist-body">${ranked.map((idx,r)=>`<div class="hist-row"><span><strong style="color:var(--accent)">${r+1}.</strong>&nbsp;${n.players[idx]}</span><span style="font-family:'Bebas Neue',sans-serif;font-size:0.98rem;color:var(--accent)">${n.scores[idx]} pts</span></div>`).join('')}</div></div>`;
+    const ni=hist.length-1-idx2;
+    html+=`<div class="hist-card" style="cursor:pointer;" onclick="window._showNightSummary(${ni})">
+      <div class="hist-head">
+        <div><div class="hist-title">${n.name||n.date}</div><div style="font-size:0.63rem;color:var(--muted);margin-top:1px;">${n.date||''}</div></div>
+        <div style="text-align:right;"><span style="font-size:0.76rem;color:var(--muted);">🏆 ${n.players[ranked[0]]}</span><div style="font-size:0.6rem;color:var(--border);margin-top:2px;">tap for details</div></div>
+      </div>
+      <div class="hist-body">${ranked.map((idx,r)=>`<div class="hist-row"><span><strong style="color:var(--accent)">${r+1}.</strong>&nbsp;${n.players[idx]}</span><span style="font-family:'Bebas Neue',sans-serif;font-size:0.98rem;color:var(--accent)">${n.scores[idx]} pts</span></div>`).join('')}</div>
+    </div>`;
   });
   el.innerHTML=html;
 }
+
+// ── NIGHT SUMMARY ────────────────────────────────────────────────────────────
+window._showNightSummary=idx=>{
+  const n=(S.history||[])[idx];
+  if(!n)return;
+  const ranked=[...Array(n.players.length).keys()].sort((a,b)=>n.scores[b]-n.scores[a]);
+  const gameWins={};
+  (n.games||[]).forEach(g=>{
+    if(g.winnerId!=null){if(!gameWins[g.type])gameWins[g.type]={};gameWins[g.type][g.winnerId]=(gameWins[g.type][g.winnerId]||0)+1;}
+  });
+  const rrW=[0,0,0,0];(n.rrMatches||[]).forEach(m=>{if(m.winner!=null)rrW[m.winner]++;});
+  const rrKing=rrW.indexOf(Math.max(...rrW));
+  document.getElementById('mSumSub').textContent=`${n.name} · ${n.date}`;
+  let html=`<div class="champ" style="margin-bottom:10px;"><div class="champ-title">🏆 Champion</div><div class="champ-name">${n.players[ranked[0]]}</div></div>`;
+  // Scores breakdown
+  html+=`<div style="background:var(--surface2);border-radius:8px;overflow:hidden;margin-bottom:10px;"><table style="width:100%;border-collapse:collapse;font-size:0.82rem;">
+    <thead><tr><th style="padding:6px 8px;color:var(--muted);text-align:left;border-bottom:1px solid var(--border);">Player</th><th style="padding:6px 8px;color:var(--muted);text-align:center;border-bottom:1px solid var(--border);">Cas</th><th style="padding:6px 8px;color:var(--muted);text-align:center;border-bottom:1px solid var(--border);">RR</th><th style="padding:6px 8px;color:var(--muted);text-align:center;border-bottom:1px solid var(--border);">Brkt</th><th style="padding:6px 8px;color:var(--muted);text-align:center;border-bottom:1px solid var(--border);">Total</th></tr></thead><tbody>`;
+  ranked.forEach((pi,r)=>{
+    html+=`<tr><td style="padding:7px 8px;font-weight:700;border-bottom:1px solid var(--border);">${r===0?'🏆 ':''}${n.players[pi]}</td>
+      <td style="padding:7px 8px;text-align:center;border-bottom:1px solid var(--border);">${(n.casualPts||[])[pi]||0}</td>
+      <td style="padding:7px 8px;text-align:center;border-bottom:1px solid var(--border);">${(n.rrPts||[])[pi]||0}</td>
+      <td style="padding:7px 8px;text-align:center;border-bottom:1px solid var(--border);">${(n.bracketPts||[])[pi]||0}</td>
+      <td style="padding:7px 8px;text-align:center;border-bottom:1px solid var(--border);font-family:'Bebas Neue',sans-serif;font-size:1.1rem;color:var(--accent);">${n.scores[pi]}</td></tr>`;
+  });
+  html+=`</tbody></table></div>`;
+  // Highlights
+  html+=`<div style="font-family:'Bebas Neue',sans-serif;font-size:0.82rem;letter-spacing:2px;color:var(--accent2);margin-bottom:6px;">HIGHLIGHTS</div>`;
+  const hlItems=[];
+  // Game wins
+  Object.entries(gameWins).forEach(([type,wins])=>{
+    const top=Object.entries(wins).sort((a,b)=>b[1]-a[1])[0];
+    if(top&&top[1]>0)hlItems.push(`🎯 ${n.players[top[0]]} won ${type} (${top[1]}x)`);
+  });
+  // RR king
+  if((n.rrMatches||[]).length>0)hlItems.push(`🏹 RR leader: ${n.players[rrKing]} (${rrW[rrKing]} wins)`);
+  // Bracket
+  if((n.bracketPodium||[]).length){
+    hlItems.push(`🥇 Bracket winner: ${n.players[n.bracketPodium[0]]}`);
+    if(n.bracketPodium[1]!=null)hlItems.push(`🥈 Runner-up: ${n.players[n.bracketPodium[1]]}`);
+  }
+  if(!hlItems.length)hlItems.push('No detailed data — played before v1.2');
+  html+=hlItems.map(h=>`<div style="padding:5px 0;border-bottom:1px solid var(--border);font-size:0.82rem;">${h}</div>`).join('');
+  document.getElementById('mSumContent').innerHTML=html;
+  document.getElementById('mSummary').classList.add('open');
+};
 
 // ── SAVE NIGHT (rich detail) ──────────────────────────────────────────────────
 window._saveNight=()=>{
@@ -920,6 +1038,68 @@ function renderAnalytics(){
 
   el.innerHTML=html;
 
+  // ── Nemesis / Victim ──
+  html+=`<div class="sec-label" style="margin-top:14px;">Nemesis & Victim (RR)</div>`;
+  html+=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden;padding:10px;">`;
+  players.forEach((_,i)=>{
+    let nemesis=-1,nemWins=0,victim=-1,victimWins=0;
+    players.forEach((_,j)=>{
+      if(i===j)return;
+      if(h2hW[j][i]>nemWins){nemWins=h2hW[j][i];nemesis=j;}
+      if(h2hW[i][j]>victimWins){victimWins=h2hW[i][j];victim=j;}
+    });
+    html+=`<div class="info-row"><span class="bold">${pName(i)}</span>
+      <span style="font-size:0.78rem;color:var(--muted);">
+        😈 ${nemesis>=0?pName(nemesis)+' ('+nemWins+'L)':'—'} &nbsp;·&nbsp;
+        🎯 ${victim>=0?pName(victim)+' ('+victimWins+'W)':'—'}
+      </span></div>`;
+  });
+  html+=`</div>`;
+
+  // ── Best Night ──
+  html+=`<div class="sec-label" style="margin-top:14px;">Best Night</div>`;
+  html+=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden;padding:10px;">`;
+  players.forEach((_,i)=>{
+    const scores=hist.map(n=>(n.scores||[])[i]||0);
+    const best=Math.max(...scores);
+    const bestNightIdx=scores.indexOf(best);
+    const bestNightName=bestNightIdx>=0?(hist[bestNightIdx].name||hist[bestNightIdx].date||'Night '+(bestNightIdx+1)):'—';
+    html+=`<div class="info-row"><span class="bold">${pName(i)}</span>
+      <span style="font-size:0.78rem;color:var(--muted);">${best>0?best+' pts — '+bestNightName:'No data'}</span></div>`;
+  });
+  html+=`</div>`;
+
+  // ── Streak ──
+  html+=`<div class="sec-label" style="margin-top:14px;">Current Win Streak (RR)</div>`;
+  html+=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden;padding:10px;">`;
+  players.forEach((_,i)=>{
+    // Walk all RR matches across all nights in order
+    const allRR=[];
+    hist.forEach(n=>(n.rrMatches||[]).forEach(m=>{if((m.p1===i||m.p2===i)&&m.winner!=null)allRR.push(m.winner===i);}));
+    let streak=0;
+    for(let k=allRR.length-1;k>=0;k--){if(allRR[k])streak++;else break;}
+    let maxStreak=0,cur=0;
+    allRR.forEach(w=>{cur=w?cur+1:0;if(cur>maxStreak)maxStreak=cur;});
+    html+=`<div class="info-row"><span class="bold">${pName(i)}</span>
+      <span style="font-size:0.78rem;color:var(--muted);">Current: ${streak} · Best: ${maxStreak}</span></div>`;
+  });
+  html+=`</div>`;
+
+  // ── Game type popularity ──
+  html+=`<div class="sec-label" style="margin-top:14px;">Game Type Popularity</div>`;
+  html+=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden;padding:10px;">`;
+  const totalPlayed=Object.entries(gamePlayed).map(([t,arr])=>({t,total:arr.reduce((a,b)=>a+b,0)/4})).sort((a,b)=>b.total-a.total);
+  const maxPlayed=totalPlayed[0]?.total||1;
+  totalPlayed.forEach(({t,total})=>{
+    const pct=Math.round(total/maxPlayed*100);
+    html+=`<div style="margin-bottom:8px;">
+      <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:3px;"><span class="bold">${t}</span><span style="color:var(--muted);">${Math.round(total)} games</span></div>
+      <div style="background:var(--surface2);border-radius:4px;height:6px;"><div style="background:var(--accent);height:6px;border-radius:4px;width:${pct}%;transition:width 0.4s;"></div></div>
+    </div>`;
+  });
+  html+=`</div>`;
+
+  el.innerHTML=html;
   // Only build charts if this section is visible
   if(_activeTab!=='analytics') return;
   Object.values(_charts).forEach(c=>{try{c.destroy();}catch(e){}});
@@ -937,8 +1117,8 @@ function renderAnalytics(){
         datasets:players.map((p,i)=>({
           label:p,
           data:nightScores.map(s=>s[i]||0),
-          borderColor:PLAYER_COLORS[i],
-          backgroundColor:PLAYER_COLORS[i]+'33',
+          borderColor:PLAYER_COLORS()[i],
+          backgroundColor:PLAYER_COLORS()[i]+'33',
           tension:0.3,pointRadius:5,pointHoverRadius:7,borderWidth:2,fill:false
         }))
       },
@@ -957,8 +1137,8 @@ function renderAnalytics(){
           datasets:players.map((p,i)=>({
             label:p,
             data:gameTypes.map(t=>gamePlayed[t][i]>0?Math.round(gameWins[t][i]/gamePlayed[t][i]*100):0),
-            backgroundColor:PLAYER_COLORS[i]+'bb',
-            borderColor:PLAYER_COLORS[i],borderWidth:1
+            backgroundColor:PLAYER_COLORS()[i]+'bb',
+            borderColor:PLAYER_COLORS()[i],borderWidth:1
           }))
         },
         options:{responsive:true,plugins:{legend:{labels:{color:'#888',font:{size:11}}}},scales:{x:{ticks:{color:'#888'}},y:{ticks:{color:'#888',callback:v=>v+'%'},max:100,beginAtZero:true}}}
@@ -976,7 +1156,7 @@ function renderAnalytics(){
         datasets:[{
           label:'RR Win %',
           data:players.map((_,i)=>rrPlayed[i]>0?Math.round(rrWins[i]/rrPlayed[i]*100):0),
-          backgroundColor:PLAYER_COLORS,borderWidth:1
+          backgroundColor:PLAYER_COLORS(),borderWidth:1
         }]
       },
       options:{responsive:true,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#888'}},y:{ticks:{color:'#888',callback:v=>v+'%'},max:100,beginAtZero:true}}}
@@ -993,7 +1173,7 @@ function renderAnalytics(){
         datasets:[{
           label:'Avg Finish (1=best)',
           data:players.map((_,i)=>bracketFinishes[i].length>0?(bracketFinishes[i].reduce((a,b)=>a+b,0)/bracketFinishes[i].length+1).toFixed(1):0),
-          backgroundColor:PLAYER_COLORS,borderWidth:1
+          backgroundColor:PLAYER_COLORS(),borderWidth:1
         }]
       },
       options:{responsive:true,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#888'}},y:{ticks:{color:'#888'},min:1,max:4,beginAtZero:false}}}
@@ -1003,6 +1183,7 @@ function renderAnalytics(){
 
 // ── RENDER ALL ────────────────────────────────────────────────────────────────
 function render(){
+  if(S.theme) applyTheme(S.theme);
   updateHeader();
   const focused=document.activeElement;
   const typingInSetup=focused&&focused.tagName==='INPUT'&&focused.closest('#section-setup');
