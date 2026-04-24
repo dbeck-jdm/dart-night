@@ -261,7 +261,7 @@ function fresh() {
 
 let S = fresh();
 let _activeTab = 'night';
-let ag = { type: null, numPlayers: 4, pts: true, p1: null, p2: null };
+let ag = { type: null, numPlayers: 4, pts: true, p1: null, p2: null, _open: true };
 let _wi=null,_ww=null,_ri=null,_rw=null,_bi=null,_bw=null,_fmt=1;
 let _analyticsPlayer = 0;
 let _charts = {};
@@ -368,7 +368,8 @@ function renderSetup() {
       </div>
     </div>
     <button class="btn btn-primary btn-full" onclick="window._startNight()">START NIGHT</button>
-    <div style="margin-top:8px;"><button class="btn btn-danger btn-full btn-sm" onclick="window._resetAll()">RESET ALL DATA</button></div>`;
+    <div style="margin-top:8px;"><button class="btn btn-danger btn-full btn-sm" onclick="window._resetAll()">RESET ALL DATA</button></div>
+    <div style="margin-top:20px;text-align:center;color:var(--border);font-size:0.68rem;letter-spacing:1px;">v1.0 · Built 2026-04-24 15:31 UTC</div>`;
 }
 
 let _pTimer=null, _nnTimer=null;
@@ -381,7 +382,7 @@ window._startNight=()=>{
   S.games=[];S.rr={going:false,rounds:1,matches:[],done:false};
   S.bracket={going:false,seeds:[],losses:{},matches:[],done:false,podium:[]};
   S.active=true;S.nightDate=dateStr();
-  ag={type:null,numPlayers:4,pts:true,p1:null,p2:null};
+  ag={type:null,numPlayers:4,pts:true,p1:null,p2:null,_open:true};
   save();toast('Night started! 🎯');updateHeader();
   document.querySelectorAll('.tab')[0].click();
 };
@@ -429,8 +430,12 @@ function renderNight() {
   }
 
   if(!S.rr.going&&!S.bracket.going){
-    html+=`<div class="sec-label">${(S.games||[]).length===0?'Add First Game':'Add Game'}</div>`;
-    html+=renderAddPanel();
+    const isOpen=ag._open||(S.games||[]).length===0;
+    html+=`<div class="sec-label" style="cursor:pointer;user-select:none;" onclick="window._toggleAddPanel()">
+      ${(S.games||[]).length===0?'Add First Game':'Add Game'}
+      <span style="font-family:'Barlow',sans-serif;font-size:0.75rem;color:var(--muted);letter-spacing:0;font-weight:400;margin-left:4px;">${isOpen?'▲ collapse':'▼ expand'}</span>
+    </div>`;
+    if(isOpen) html+=renderAddPanel();
   }
 
   html+=`<div class="sec-label" style="margin-top:16px;">Round Robin <span style="font-size:0.63rem;color:var(--muted);font-family:'Barlow',sans-serif;letter-spacing:0;font-weight:400;margin-left:4px;">1v1 · Seeds the bracket</span></div>`;
@@ -483,6 +488,8 @@ function renderAddPanel() {
   return html+`</div>`;
 }
 
+window._toggleAddPanel=()=>{ag._open=!ag._open;renderNight();};
+
 window._agType=t=>{ag.type=t;ag.pts=(t!=='Killer');renderNight();};
 window._agPlayers=n=>{ag.numPlayers=n;if(n===4){ag.p1=null;ag.p2=null;}renderNight();};
 window._agPts=v=>{ag.pts=v;renderNight();};
@@ -499,7 +506,7 @@ window._addGame=()=>{
   const players=ag.numPlayers===4?[0,1,2,3]:[ag.p1,ag.p2],type=ag.type;
   if(!S.games)S.games=[];
   S.games.push({id:Date.now(),type,players,pts:ag.pts,winnerId:null});
-  ag={type:null,numPlayers:4,pts:true,p1:null,p2:null};
+  ag={type:null,numPlayers:4,pts:true,p1:null,p2:null,_open:false};
   save();toast(`${type} added!`);
 };
 window._removeGame=i=>{S.games.splice(i,1);save();};
