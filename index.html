@@ -159,10 +159,6 @@
       <div class="logo">DART<span>NIGHT</span></div>
       <div class="header-right">
         <div class="sync-badge" id="syncBadge"><div class="sync-dot"></div><span id="syncText">Connecting...</span></div>
-        <div id="nightInfo" style="display:none;text-align:right;">
-          <div class="night-name" id="nightNameDisp"></div>
-          <div class="night-date" id="nightDateDisp"></div>
-        </div>
       </div>
     </div>
     <div class="tabs">
@@ -369,7 +365,7 @@ function renderSetup() {
     </div>
     <button class="btn btn-primary btn-full" onclick="window._startNight()">START NIGHT</button>
     <div style="margin-top:8px;"><button class="btn btn-danger btn-full btn-sm" onclick="window._resetAll()">RESET ALL DATA</button></div>
-    <div style="margin-top:20px;text-align:center;color:var(--border);font-size:0.68rem;letter-spacing:1px;">v1.0 · Built 2026-04-24 15:31 UTC</div>`;
+    <div style="margin-top:20px;text-align:center;color:var(--muted);font-size:0.68rem;letter-spacing:1px;">v1.0 · Built 2026-04-24 15:31 UTC</div>`;
 }
 
 let _pTimer=null, _nnTimer=null;
@@ -393,12 +389,7 @@ window._resetAll=()=>{
 };
 
 function updateHeader() {
-  const info=document.getElementById('nightInfo');
-  if(S.active||S.nightName){
-    info.style.display='block';
-    document.getElementById('nightNameDisp').textContent=S.nightName||'—';
-    document.getElementById('nightDateDisp').textContent=S.nightDate||dateStr();
-  } else info.style.display='none';
+  // Night info removed from header — nothing to update
 }
 window.updateHeader=updateHeader;
 
@@ -430,12 +421,9 @@ function renderNight() {
   }
 
   if(!S.rr.going&&!S.bracket.going){
-    const isOpen=ag._open||(S.games||[]).length===0;
-    html+=`<div class="sec-label" style="cursor:pointer;user-select:none;" onclick="window._toggleAddPanel()">
-      ${(S.games||[]).length===0?'Add First Game':'Add Game'}
-      <span style="font-family:'Barlow',sans-serif;font-size:0.75rem;color:var(--muted);letter-spacing:0;font-weight:400;margin-left:4px;">${isOpen?'▲ collapse':'▼ expand'}</span>
-    </div>`;
-    if(isOpen) html+=renderAddPanel();
+    const isOpen=ag._open;
+    html+=`<div class="sec-label">Add Game</div>`;
+    html+=renderAddPanel(isOpen);
   }
 
   html+=`<div class="sec-label" style="margin-top:16px;">Round Robin <span style="font-size:0.63rem;color:var(--muted);font-family:'Barlow',sans-serif;letter-spacing:0;font-weight:400;margin-left:4px;">1v1 · Seeds the bracket</span></div>`;
@@ -465,25 +453,31 @@ function renderNight() {
   el.innerHTML=html;
 }
 
-function renderAddPanel() {
-  let html=`<div class="add-panel"><h4>+ ADD GAME</h4>
-    <div class="lbl">Game Type</div>
-    <div class="gt-grid">${GAME_TYPES.map(t=>`<div class="gt-btn ${ag.type===t?'sel':''}" onclick="window._agType('${t}')">${t}</div>`).join('')}</div>`;
-  if(ag.type){
-    html+=`<div class="lbl">Players</div>
-    <div class="tog-row">
-      <div class="tog-btn ${ag.numPlayers===4?'sel':''}" onclick="window._agPlayers(4)">All 4</div>
-      <div class="tog-btn ${ag.numPlayers===2?'sel':''}" onclick="window._agPlayers(2)">Head to Head</div>
+function renderAddPanel(isOpen) {
+  let html=`<div class="add-panel">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:${isOpen?'10':'0'}px;">
+      <h4 style="margin-bottom:0;">+ ADD GAME</h4>
+      <button class="btn btn-ghost btn-sm" onclick="window._toggleAddPanel()">${isOpen?'▲ Hide':'▼ Show'}</button>
     </div>`;
-    if(ag.numPlayers===2){
-      html+=`<div class="lbl">Select 2 Players</div><div class="p2-grid">${(S.players||[]).map((_,i)=>`<div class="p2-btn ${(ag.p1===i||ag.p2===i)?'sel':''}" onclick="window._agP2(${i})">${pName(i)}</div>`).join('')}</div>`;
+  if(isOpen){
+    html+=`<div class="lbl">Game Type</div>
+    <div class="gt-grid">${GAME_TYPES.map(t=>`<div class="gt-btn ${ag.type===t?'sel':''}" onclick="window._agType('${t}')">${t}</div>`).join('')}</div>`;
+    if(ag.type){
+      html+=`<div class="lbl">Players</div>
+      <div class="tog-row">
+        <div class="tog-btn ${ag.numPlayers===4?'sel':''}" onclick="window._agPlayers(4)">All 4</div>
+        <div class="tog-btn ${ag.numPlayers===2?'sel':''}" onclick="window._agPlayers(2)">Head to Head</div>
+      </div>`;
+      if(ag.numPlayers===2){
+        html+=`<div class="lbl">Select 2 Players</div><div class="p2-grid">${(S.players||[]).map((_,i)=>`<div class="p2-btn ${(ag.p1===i||ag.p2===i)?'sel':''}" onclick="window._agP2(${i})">${pName(i)}</div>`).join('')}</div>`;
+      }
+      html+=`<div class="lbl">Points</div>
+      <div class="tog-row">
+        <div class="tog-btn ${ag.pts?'sel':''}" onclick="window._agPts(true)">Points On</div>
+        <div class="tog-btn ${!ag.pts?'sel':''}" onclick="window._agPts(false)">No Points</div>
+      </div>
+      <button class="btn btn-primary btn-full" onclick="window._addGame()">ADD GAME</button>`;
     }
-    html+=`<div class="lbl">Points</div>
-    <div class="tog-row">
-      <div class="tog-btn ${ag.pts?'sel':''}" onclick="window._agPts(true)">Points On</div>
-      <div class="tog-btn ${!ag.pts?'sel':''}" onclick="window._agPts(false)">No Points</div>
-    </div>
-    <button class="btn btn-primary btn-full" onclick="window._addGame()">ADD GAME</button>`;
   }
   return html+`</div>`;
 }
@@ -506,7 +500,7 @@ window._addGame=()=>{
   const players=ag.numPlayers===4?[0,1,2,3]:[ag.p1,ag.p2],type=ag.type;
   if(!S.games)S.games=[];
   S.games.push({id:Date.now(),type,players,pts:ag.pts,winnerId:null});
-  ag={type:null,numPlayers:4,pts:true,p1:null,p2:null,_open:false};
+  ag={type:null,numPlayers:4,pts:true,p1:null,p2:null,_open:ag._open};
   save();toast(`${type} added!`);
 };
 window._removeGame=i=>{S.games.splice(i,1);save();};
