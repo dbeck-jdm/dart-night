@@ -250,7 +250,7 @@
   <div class="sub">This will lock the casual game list. You can still add games after.</div>
   <div class="modal-btns">
     <button class="btn btn-secondary" style="flex:1" onclick="closeM('mRRConfirm')">NOT YET</button>
-    <button class="btn btn-primary" style="flex:1" onclick="window._openFormatM()">LET'S GO</button>
+    <button class="btn btn-primary" style="flex:1" onclick="closeM('mRRConfirm');window._openFormatM()">LET'S GO</button>
   </div>
 </div></div>
 
@@ -435,7 +435,7 @@ function renderSetup() {
         </label>
       </div>
     </div>
-    <div style="margin-top:20px;text-align:center;color:var(--muted);font-size:0.68rem;letter-spacing:1px;">v1.2 · Built 2026-04-24 12:04 EDT</div>`;
+    <div style="margin-top:20px;text-align:center;color:var(--muted);font-size:0.68rem;letter-spacing:1px;">v1.2 · Built 2026-04-24 12:09 EDT</div>`;
 }
 
 let _pTimer=null, _nnTimer=null;
