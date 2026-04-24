@@ -435,7 +435,7 @@ function renderSetup() {
         </label>
       </div>
     </div>
-    <div style="margin-top:20px;text-align:center;color:var(--muted);font-size:0.68rem;letter-spacing:1px;">v1.2 · Built 2026-04-24 12:09 EDT</div>`;
+    <div style="margin-top:20px;text-align:center;color:var(--muted);font-size:0.68rem;letter-spacing:1px;">v1.2 · Built 2026-04-24 12:15 EDT</div>`;
 }
 
 let _pTimer=null, _nnTimer=null;
@@ -914,7 +914,7 @@ window._saveNight=()=>{
   const cPts=casualPts(),rPts=rrPts(),bPts=[0,0,0,0];
   if(S.bracket.done)(S.bracket.podium||[]).forEach((idx,r)=>{if([8,6,3,1][r]!=null)bPts[idx]=[8,6,3,1][r];});
   if(!S.history)S.history=[];
-  S.history.push({
+  const nightRecord={
     name:S.nightName,
     date:S.nightDate,
     players:[...S.players],
@@ -922,14 +922,25 @@ window._saveNight=()=>{
     casualPts:[...cPts],
     rrPts:[...rPts],
     bracketPts:[...bPts],
-    // Full game detail for analytics
     games:(S.games||[]).map(g=>({type:g.type,players:[...g.players],pts:g.pts,winnerId:g.winnerId})),
-    rrMatches:(S.rr.matches||[]).map(m=>({p1:m.p1,p2:m.p2,winner:m.winner,skipped:m.skipped,leg:m.leg})),
+    rrMatches:(S.rr.matches||[]).map(m=>({p1:m.p1,p2:m.p2,winner:m.winner,skipped:m.skipped||false,leg:m.leg})),
     bracketMatches:(S.bracket.matches||[]).map(m=>({label:m.label,p1:m.p1,p2:m.p2,winner:m.winner,loser:m.loser,round:m.round})),
     bracketPodium:[...(S.bracket.podium||[])],
-  });
-  S.active=false;S.games=[];S.nightName='';S.nightDate='';
-  save();toast('Night saved! 🎉');updateHeader();
+  };
+  S.history.push(nightRecord);
+  S.active=false;
+  S.games=[];
+  S.nightName='';
+  S.nightDate='';
+  S.rr={going:false,rounds:1,matches:[],done:false};
+  S.bracket={going:false,seeds:[],losses:{},matches:[],done:false,podium:[]};
+  save();
+  toast('Night saved! 🎉');
+  updateHeader();
+  render();
+  // Switch to history tab to confirm
+  const histTab=document.querySelectorAll('.tab')[3];
+  if(histTab) histTab.click();
 };
 
 // ── ANALYTICS ────────────────────────────────────────────────────────────────
