@@ -314,6 +314,8 @@ function nav(name,btn) {
   btn.classList.add('active');
   _activeTab=name;
   render();
+  // Rebuild charts now that the canvas is visible
+  if(name==='analytics') renderAnalytics();
 }
 window.nav=nav;
 
@@ -861,7 +863,8 @@ function renderAnalytics(){
 
   el.innerHTML=html;
 
-  // Destroy old charts
+  // Only build charts if this section is visible
+  if(_activeTab!=='analytics') return;
   Object.values(_charts).forEach(c=>{try{c.destroy();}catch(e){}});
   _charts={};
 
@@ -951,7 +954,7 @@ function render(){
   renderScores();
   renderBracket();
   renderHistory();
-  if(_activeTab==='analytics')renderAnalytics();
+  renderAnalytics();
 }
 
 </script>
