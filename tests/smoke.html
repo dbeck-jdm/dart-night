@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Running…</title>
+<style>
+  body{background:#0f0f0f;color:#f0ede6;font:14px/1.5 ui-monospace,Consolas,monospace;padding:16px;}
+  iframe{width:420px;height:700px;border:1px solid #333;}
+</style>
+</head>
+<body>
+<h1>Dart Night smoke test (local data only)</h1>
+<pre id="results">Running…</pre>
+<iframe id="app" src="../index.html?env=local&reset"></iframe>
+<script type="module">
+// Drives the real app (in local mode, seeded from the fixture) through a full night.
+const results = [];
+const out = document.getElementById('results');
+const frame = document.getElementById('app');
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const step = async (name, fn) => {
+  try { await fn(); results.push(`PASS  ${name}`); }
+  catch (e) { results.push(`FAIL  ${name}\n      ${e.message}`); throw e; }
+};
+const ok = (v, msg) => { if (!v) throw new Error(msg); };
+
+try {
+  await new Promise(r => frame.addEventListener('load', r, { once: true }));
+  const w = frame.contentWindow, d = frame.contentDocument;
+  const errors = [];
+  w.addEventListener('error', e => errors.push(e.message));
+  w.addEventListener('unhandledrejection', e => errors.push(String(e.reason)));
+  w.confirm = () => true;
+  const until = async (cond, msg, ms = 4000) => { const t = Date.now(); while (!cond()) { if (Date.now() - t > ms) throw new Error('timeout: ' + msg); await sleep(25); } };
+  const tab = name => [...d.querySelectorAll('.tab')].find(t => t.getAttribute('onclick').includes(`'${name}'`));
+  const section = name => d.getElementById('section-' + name);
+  const stateKey = 'dartnight-local-state';
+  const stored = () => JSON.parse(w.localStorage.getItem(stateKey));
+
+  await step('app connects in LOCAL mode', async () => {
+    await until(() => d.getElementById('syncText').textContent === 'Live', 'sync Live');
+    ok(d.querySelector('.env-badge')?.textContent.includes('LOCAL'), 'local badge shown');
+  });
+
+  for (const name of ['scores', 'history', 'analytics', 'bracket', 'setup', 'night']) {
+    await step(`tab "${name}" renders`, async () => {
+      tab(name).click();
+      await until(() => section(name).classList.contains('active') && section(name).innerHTML.trim().length > 0, name);
+    });
+  }
+
+  await step('history shows the 4 fixture nights', () => {
+    tab('history').click();
+    ok(section('history').querySelectorAll('.hist-card').length === 4, 'expected 4 cards');
+  });
+
+  await step('stats tab draws charts (Chart.js lazy-loaded)', async () => {
+    tab('analytics').click();
+    await until(() => w.Chart && section('analytics').querySelectorAll('canvas').length >= 3, 'charts', 10000);
+    await until(() => w.Chart.getChart(d.getElementById('chartPts')), 'points chart instance', 5000);
+  });
+
+  await step('start a night', async () => {
+    tab('setup').click();
+    w._setNightName('Smoke Night');
+    w._startNight();
+    await until(() => stored().active === true, 'active');
+    ok(section('night').classList.contains('active'), 'returned to night tab');
+  });
+
+  await step('add and score a casual game', async () => {
+    w._agType('Cricket'); w._addGame();
+    w._openWinnerM(0); w._pickW(2); w.confirmCasualW();
+    await until(() => stored().games?.[0]?.winnerId === 2, 'casual winner saved');
+  });
+
+  await step('play a 1x round robin', async () => {
+    w._openFormatM(); w.pickFmt(1); w.confirmFormat();
+    await until(() => (stored().rr.matches || []).length === 6, 'rr matches');
+    for (let i = 0; i < 6; i++) { const m = stored().rr.matches[i]; w._openRRM(i); w._pickRR(m.p1); w.confirmRR(); }
+    await until(() => stored().rr.done === true, 'rr done');
+  });
+
+  await step('play the bracket to completion', async () => {
+    w._startBracket();
+    await until(() => stored().bracket?.going, 'bracket going');
+    tab('bracket').click();
+    for (let guard = 0; guard < 10 && !stored().bracket.done; guard++) {
+      const m = stored().bracket.matches.find(x => x.winner == null && x.p1 != null && x.p2 != null);
+      w._openBM(m.id); w._pickB(m.p1); w.confirmBracket();
+    }
+    ok(stored().bracket.done, 'bracket done');
+    ok(section('bracket').querySelector('.champ'), 'champion shown');
+  });
+
+  await step('save the night into history', async () => {
+    w._saveNight();
+    await until(() => stored().history.length === 5 && !stored().active, 'history 5');
+    const n = stored().history[4];
+    ok(n.name === 'Smoke Night' && n.bracketPodium.length === 4 && n.scores.length === 4, 'night record');
+    ok(section('history').classList.contains('active') && section('history').querySelectorAll('.hist-card').length === 5, 'history tab shows 5');
+  });
+
+  await step('no uncaught errors', () => ok(errors.length === 0, errors.join(' | ')));
+} catch (e) { /* recorded above */ }
+
+const failed = results.filter(r => r.startsWith('FAIL')).length;
+out.textContent = results.join('\n') + `\n\n${failed ? 'FAILED' : 'ALL PASSED'}`;
+document.title = failed ? 'FAIL' : 'PASS';
+document.body.dataset.status = failed ? 'fail' : 'pass';
+</script>
+</body>
+</html>

@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Running…</title>
+<style>
+  body{background:#0f0f0f;color:#f0ede6;font:14px/1.5 ui-monospace,Consolas,monospace;padding:16px;}
+  body[data-status=pass] h1{color:#4caf7d;} body[data-status=fail] h1{color:#e05c2a;}
+</style>
+</head>
+<body>
+<h1>Dart Night tests</h1>
+<pre id="results">Running…</pre>
+<script type="module" src="tests.js"></script>
+<script>window.addEventListener('error', e => { document.getElementById('results').textContent = 'ERROR: ' + e.message; document.title = 'FAIL (error)'; });</script>
+</body>
+</html>
