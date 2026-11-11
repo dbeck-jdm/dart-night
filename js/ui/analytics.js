@@ -1,7 +1,9 @@
 // Stats tab. Chart.js is loaded lazily the first time this tab is shown.
-import { S } from '../store.js';
+import { S, seasonById, nameOf } from '../store.js';
+import { STATUS, seasonNights, viewPids, remapNight, careerSeasonStats } from '../logic/seasons.js';
+import { seasonChipsHTML } from './history.js';
 import { PLAYER_COLORS } from '../themes.js';
-import { pName, esc } from './dom.js';
+import { esc } from './dom.js';
 
 let _charts = {};
 let chartLib = null;
@@ -22,33 +24,63 @@ export function destroyCharts() {
   _charts = {};
 }
 
+// Selected scope: a season id or 'all' (UI only). Defaults to the current season.
+let _scope = null, _seenCurrent = null; // resets to the current season when a new one starts
+window._statsScope = id => { _scope = id; renderAnalytics(); };
+
+const EXTRA_COLORS = ['#f08a5d', '#b83b5e', '#6a8caf', '#c9d6df', '#a3de83', '#f9ed69'];
+const colorFor = i => PLAYER_COLORS()[i] || EXTRA_COLORS[(i - 4) % EXTRA_COLORS.length];
+// One stable color per person (by when they joined the roster), used by every chart
+const colorOfPid = pid => colorFor(Math.max(0, Object.keys(S.roster).indexOf(pid)));
+
 export function renderAnalytics(){
   const el=document.getElementById('section-analytics');
-  const hist=S.history||[];
-  if(!hist.length){el.innerHTML=`<div class="empty-state"><div class="big">📈</div><p>Complete your first night to see analytics.</p></div>`;return;}
+  if(!_scope||(_scope!=='all'&&!seasonById(_scope))||_seenCurrent!==S.currentSeasonId){_scope=S.currentSeasonId;_seenCurrent=S.currentSeasonId;}
+  const isAll=_scope==='all';
+  const scopeSeason=isAll?null:seasonById(_scope);
+  const scopeLabel=isAll?'All-Time':scopeSeason.name;
+  const chips=seasonChipsHTML(_scope,'_statsScope',{allTime:true});
+
+  // Translate every night into one index space of people (view index = pids position)
+  const baseNights=isAll?(S.history||[]):seasonNights(S.history,_scope);
+  const pids=viewPids(baseNights,isAll?S.playerIds:scopeSeason.playerIds);
+  const hist=baseNights.map(n=>remapNight(n,pids));
+  const K=pids.length;
+  const zeros=()=>Array(K).fill(0);
+  const pName=i=>players[i];
+
+  const careerHTML=isAll?seasonCareerHTML():'';
+  if(!hist.length){el.innerHTML=chips+careerHTML+`<div class="empty-state"><div class="big">📈</div><p>No nights in ${esc(scopeLabel)} yet.</p></div>`;return;}
 
   const nights=hist.length;
-  const rawPlayers=S.players||[];
+  const rawPlayers=pids.map(nameOf);
   const players=rawPlayers.map(p=>esc(p));
   const renderId=String(Date.now()+Math.random());
 
   // Aggregate data
-  const allTimeTotal=[0,0,0,0];
-  const bracketFinishes=[[],[],[],[]]; // per player, array of finish positions (0=1st)
+  const allTimeTotal=zeros();
+  const nightsPlayed=zeros();
+  const nightWins=zeros();
+  const bracketFinishes=Array.from({length:K},()=>[]); // per player, array of finish positions (0=1st)
   const gameWins={}; // { type: [w,w,w,w] }
   const gamePlayed={}; // { type: [p,p,p,p] }
-  const rrWins=[0,0,0,0],rrPlayed=[0,0,0,0];
-  const h2hW=[[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]];
-  const nightScores=hist.map(n=>n.scores||[0,0,0,0]);
+  const gameCount={}; // { type: games played }
+  const rrWins=zeros(),rrPlayed=zeros();
+  const h2hW=Array.from({length:K},()=>zeros());
+  // null for nights a player wasn't part of, so the line chart shows a gap
+  const nightScores=hist.map(n=>n.scores.map((s,i)=>n.present.includes(i)?s:null));
 
   hist.forEach(n=>{
     (n.scores||[]).forEach((s,i)=>allTimeTotal[i]+=s);
+    n.present.forEach(i=>nightsPlayed[i]++);
+    if(n.placement.length)nightWins[n.placement[0]]++;
     // Bracket finishes
     (n.bracketPodium||[]).forEach((idx,r)=>bracketFinishes[idx].push(r));
     // Casual game wins
     (n.games||[]).forEach(g=>{
-      if(!gameWins[g.type])gameWins[g.type]=[0,0,0,0];
-      if(!gamePlayed[g.type])gamePlayed[g.type]=[0,0,0,0];
+      if(!gameWins[g.type])gameWins[g.type]=zeros();
+      if(!gamePlayed[g.type])gamePlayed[g.type]=zeros();
+      gameCount[g.type]=(gameCount[g.type]||0)+1;
       (g.players||[]).forEach(i=>gamePlayed[g.type][i]++);
       if(g.winnerId!=null)gameWins[g.type][g.winnerId]++;
     });
@@ -64,16 +96,15 @@ export function renderAnalytics(){
     });
   });
 
-  let html=`<div class="sec-label">All-Time Overview</div>`;
+  let html=chips+careerHTML+`<div class="sec-label">${esc(scopeLabel)} Overview</div>`;
 
   // Summary stat boxes
   html+=`<div class="stat-grid">`;
-  const ranked=[...Array(4).keys()].sort((a,b)=>allTimeTotal[b]-allTimeTotal[a]);
-  html+=`<div class="stat-box"><div class="sv">${pName(ranked[0])}</div><div class="sl">All-Time Leader</div></div>`;
+  const ranked=[...Array(K).keys()].sort((a,b)=>allTimeTotal[b]-allTimeTotal[a]);
+  const winsRanked=[...Array(K).keys()].sort((a,b)=>(nightWins[b]-nightWins[a])||(allTimeTotal[b]-allTimeTotal[a]));
+  html+=`<div class="stat-box"><div class="sv">${pName(winsRanked[0])}</div><div class="sl">Most Night Wins (${nightWins[winsRanked[0]]})</div></div>`;
   html+=`<div class="stat-box"><div class="sv">${nights}</div><div class="sl">Nights Played</div></div>`;
-  const mostBracketWins=bracketFinishes.map(f=>f.filter(x=>x===0).length);
-  const bracketChamp=mostBracketWins.indexOf(Math.max(...mostBracketWins));
-  html+=`<div class="stat-box"><div class="sv">${pName(bracketChamp)}</div><div class="sl">Bracket Champion</div></div>`;
+  html+=`<div class="stat-box"><div class="sv">${pName(ranked[0])}</div><div class="sl">Points Leader</div></div>`;
   const bestRRRate=players.map((_,i)=>rrPlayed[i]>0?rrWins[i]/rrPlayed[i]:0);
   const rrKing=bestRRRate.indexOf(Math.max(...bestRRRate));
   html+=`<div class="stat-box"><div class="sv">${pName(rrKing)}</div><div class="sl">RR Leader</div></div>`;
@@ -92,7 +123,7 @@ export function renderAnalytics(){
   html+=`<div class="chart-wrap"><h4>Round Robin Win Rate</h4><canvas id="chartRR" height="180"></canvas></div>`;
 
   // Bracket avg finish
-  html+=`<div class="chart-wrap"><h4>Avg Bracket Finish</h4><canvas id="chartBracket" height="180"></canvas></div>`;
+  html+=`<div class="chart-wrap"><h4>Avg Night Finish (bracket)</h4><canvas id="chartBracket" height="180"></canvas></div>`;
 
   // H2H table
   html+=`<div class="sec-label">Head to Head (RR)</div>`;
@@ -113,15 +144,15 @@ export function renderAnalytics(){
   html+=`</tbody></table></div>`;
 
   // All-time standings table
-  html+=`<div class="sec-label" style="margin-top:14px;">All-Time Standings</div>`;
+  html+=`<div class="sec-label" style="margin-top:14px;">${esc(scopeLabel)} Points</div>`;
   html+=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden;"><table class="stbl">
-    <thead><tr><th>#</th><th>Player</th><th class="ctr">Pts</th><th class="ctr">Avg</th><th class="ctr">Brkt W</th><th class="ctr">RR%</th></tr></thead><tbody>`;
+    <thead><tr><th>#</th><th>Player</th><th class="ctr">Pts</th><th class="ctr">Avg</th><th class="ctr" title="Nights won (bracket wins)">Night W</th><th class="ctr">RR%</th></tr></thead><tbody>`;
   ranked.forEach((idx,r)=>{
-    const bWins=bracketFinishes[idx].filter(x=>x===0).length;
+    const bWins=nightWins[idx];
     const rrPct=rrPlayed[idx]>0?Math.round(rrWins[idx]/rrPlayed[idx]*100):0;
     html+=`<tr><td><strong style="${r===0?'color:var(--accent)':''}">${r+1}</strong></td><td class="bold">${pName(idx)}</td>
       <td class="ctr"><span class="pts-big">${allTimeTotal[idx]}</span></td>
-      <td class="ctr" style="color:var(--muted)">${nights>0?(allTimeTotal[idx]/nights).toFixed(1):0}</td>
+      <td class="ctr" style="color:var(--muted)">${nightsPlayed[idx]>0?(allTimeTotal[idx]/nightsPlayed[idx]).toFixed(1):0}</td>
       <td class="ctr">${bWins}</td>
       <td class="ctr">${rrPct}%</td></tr>`;
   });
@@ -178,7 +209,7 @@ export function renderAnalytics(){
   // ── Game type popularity ──
   html+=`<div class="sec-label" style="margin-top:14px;">Game Type Popularity</div>`;
   html+=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden;padding:10px;">`;
-  const totalPlayed=Object.entries(gamePlayed).map(([t,arr])=>({t,total:arr.reduce((a,b)=>a+b,0)/4})).sort((a,b)=>b.total-a.total);
+  const totalPlayed=Object.entries(gameCount).map(([t,total])=>({t,total})).sort((a,b)=>b.total-a.total);
   const maxPlayed=totalPlayed[0]?.total||1;
   totalPlayed.forEach(({t,total})=>{
     const pct=Math.round(total/maxPlayed*100);
@@ -196,12 +227,14 @@ export function renderAnalytics(){
     if (!el.isConnected || !el.classList.contains('active')) return;
     // A newer render may have replaced the canvases; only draw on the current ones
     if (el.dataset.renderId !== renderId) return;
-    drawCharts(Chart, { hist, players: rawPlayers, nightScores, gameTypes, gameWins, gamePlayed, rrWins, rrPlayed, bracketFinishes });
+    drawCharts(Chart, { pids, hist, players: rawPlayers, nightScores, gameTypes, gameWins, gamePlayed, rrWins, rrPlayed, bracketFinishes });
   }).catch(e => console.error('Chart.js failed to load', e));
 }
 
-function drawCharts(Chart, { hist, players, nightScores, gameTypes, gameWins, gamePlayed, rrWins, rrPlayed, bracketFinishes }) {
+function drawCharts(Chart, { pids, hist, players, nightScores, gameTypes, gameWins, gamePlayed, rrWins, rrPlayed, bracketFinishes }) {
   destroyCharts();
+  drawSeasonChart(Chart);
+  const colorFor = i => colorOfPid(pids[i]);
   const nightLabels=hist.map(n=>n.name||n.date||'Night');
 
   // Points over time
@@ -214,9 +247,9 @@ function drawCharts(Chart, { hist, players, nightScores, gameTypes, gameWins, ga
         datasets:players.map((p,i)=>({
           label:p,
           data:nightScores.map(s=>s[i]||0),
-          borderColor:PLAYER_COLORS()[i],
-          backgroundColor:PLAYER_COLORS()[i]+'33',
-          tension:0.3,pointRadius:5,pointHoverRadius:7,borderWidth:2,fill:false
+          borderColor:colorFor(i),
+          backgroundColor:colorFor(i)+'33',
+          tension:0.3,spanGaps:true,pointRadius:5,pointHoverRadius:7,borderWidth:2,fill:false
         }))
       },
       options:{responsive:true,plugins:{legend:{labels:{color:'#888',font:{size:11}}}},scales:{x:{ticks:{color:'#888'}},y:{ticks:{color:'#888'},beginAtZero:true}}}
@@ -234,8 +267,8 @@ function drawCharts(Chart, { hist, players, nightScores, gameTypes, gameWins, ga
           datasets:players.map((p,i)=>({
             label:p,
             data:gameTypes.map(t=>gamePlayed[t][i]>0?Math.round(gameWins[t][i]/gamePlayed[t][i]*100):0),
-            backgroundColor:PLAYER_COLORS()[i]+'bb',
-            borderColor:PLAYER_COLORS()[i],borderWidth:1
+            backgroundColor:colorFor(i)+'bb',
+            borderColor:colorFor(i),borderWidth:1
           }))
         },
         options:{responsive:true,plugins:{legend:{labels:{color:'#888',font:{size:11}}}},scales:{x:{ticks:{color:'#888'}},y:{ticks:{color:'#888',callback:v=>v+'%'},max:100,beginAtZero:true}}}
@@ -253,7 +286,7 @@ function drawCharts(Chart, { hist, players, nightScores, gameTypes, gameWins, ga
         datasets:[{
           label:'RR Win %',
           data:players.map((_,i)=>rrPlayed[i]>0?Math.round(rrWins[i]/rrPlayed[i]*100):0),
-          backgroundColor:PLAYER_COLORS(),borderWidth:1
+          backgroundColor:players.map((_,i)=>colorFor(i)),borderWidth:1
         }]
       },
       options:{responsive:true,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#888'}},y:{ticks:{color:'#888',callback:v=>v+'%'},max:100,beginAtZero:true}}}
@@ -270,10 +303,58 @@ function drawCharts(Chart, { hist, players, nightScores, gameTypes, gameWins, ga
         datasets:[{
           label:'Avg Finish (1=best)',
           data:players.map((_,i)=>bracketFinishes[i].length>0?(bracketFinishes[i].reduce((a,b)=>a+b,0)/bracketFinishes[i].length+1).toFixed(1):0),
-          backgroundColor:PLAYER_COLORS(),borderWidth:1
+          backgroundColor:players.map((_,i)=>colorFor(i)),borderWidth:1
         }]
       },
       options:{responsive:true,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#888'}},y:{ticks:{color:'#888'},min:1,max:4,beginAtZero:false}}}
     });
   }
+}
+
+// ── Seasons (career) — shown in the All-time view ────────────────────────────
+function seasonCareerHTML() {
+  const career = careerSeasonStats(S.seasons, S.history);
+  const rows = Object.values(career).filter(p => p.nights > 0);
+  if (!rows.length) return '';
+  rows.sort((a, b) => (b.regularTitles + b.playoffTitles) - (a.regularTitles + a.playoffTitles) || (a.avgSeasonFinish ?? 9) - (b.avgSeasonFinish ?? 9) || (b.placementPerNight ?? 0) - (a.placementPerNight ?? 0));
+  const f1 = v => v == null ? '—' : v.toFixed(1);
+  const finished = S.seasons.filter(x => x.status !== STATUS.REGULAR).length;
+  let html = `<div class="sec-label">Seasons</div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow-x:auto;"><table class="stbl">
+    <thead><tr><th>Player</th><th class="ctr" title="Seasons played">Szn</th><th class="ctr" title="Regular-season titles">👑</th><th class="ctr" title="Playoff titles">🏆</th><th class="ctr" title="Won both in the same season">2x</th><th class="ctr" title="Average final regular-season standing">Avg fin</th><th class="ctr" title="Average nightly finish">Night</th><th class="ctr" title="Placement points per night">Pts/N</th></tr></thead><tbody>
+    ${rows.map(p => `<tr><td class="bold">${esc(nameOf(p.pid))}</td><td class="ctr">${p.seasonsPlayed}</td><td class="ctr">${p.regularTitles}</td><td class="ctr">${p.playoffTitles}</td><td class="ctr">${p.doubles}</td>
+      <td class="ctr">${f1(p.avgSeasonFinish)}</td><td class="ctr">${f1(p.avgNightFinish)}</td><td class="ctr">${f1(p.placementPerNight)}</td></tr>`).join('')}
+    </tbody></table></div>
+    <div class="note" style="margin:6px 2px 12px;">Avg fin counts finished regular seasons only (${finished} so far).</div>`;
+  const best = rows.filter(p => p.bestSeason);
+  if (best.length) {
+    html += `<div class="card">${best.map(p => `<div class="info-row"><span class="bold">${esc(nameOf(p.pid))}</span><span class="note">Best: #${p.bestSeason.rank} (S${p.bestSeason.season}) · Worst: #${p.worstSeason.rank} (S${p.worstSeason.season})</span></div>`).join('')}</div>`;
+  }
+  const playoff = rows.filter(p => p.playoffFinishes.length);
+  if (playoff.length) {
+    const fmt = v => v > 0 ? `+${v.toFixed(1)}` : v.toFixed(1);
+    html += `<div class="sec-label">Playoff vs Seed</div><div class="card">${playoff.map(p => `<div class="info-row"><span class="bold">${esc(nameOf(p.pid))}</span><span class="note">${p.playoffFinishes.map(f => `S${f.season}: seed #${f.seed} → ${f.finish}${['st', 'nd', 'rd', 'th'][f.finish - 1]}`).join(' · ')} &nbsp;(${fmt(p.avgPlayoffVsSeed)})</span></div>`).join('')}
+      <div class="note" style="margin-top:6px;">+ means finished better than seeded.</div></div>`;
+  }
+  if (finished >= 2) html += `<div class="chart-wrap"><h4>Season Finish</h4><canvas id="chartSeasons" height="180"></canvas></div>`;
+  return html;
+}
+
+function drawSeasonChart(Chart) {
+  const ctx = document.getElementById('chartSeasons');
+  if (!ctx) return;
+  const seasons = S.seasons.filter(x => x.status !== STATUS.REGULAR);
+  const pids = [...new Set(seasons.flatMap(x => x.standings.map(r => r.pid)))];
+  _charts.seasons = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: seasons.map(x => x.name),
+      datasets: pids.map((pid, i) => ({
+        label: nameOf(pid),
+        data: seasons.map(x => { const r = x.standings.find(r => r.pid === pid); return r ? r.rank : null; }),
+        borderColor: colorOfPid(pid), backgroundColor: colorOfPid(pid) + '33', tension: 0.2, spanGaps: true, pointRadius: 5, borderWidth: 2, fill: false,
+      })),
+    },
+    options: { responsive: true, plugins: { legend: { labels: { color: '#888', font: { size: 11 } } } }, scales: { x: { ticks: { color: '#888' } }, y: { reverse: true, min: 1, max: 4, ticks: { color: '#888', stepSize: 1 } } } },
+  });
 }

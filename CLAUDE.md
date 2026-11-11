@@ -64,10 +64,21 @@ tools/              serve.ps1, test.ps1
 2. Casual games (`S.games`): 1 pt per win when points are on.
 3. Round robin (`S.rr`): `PAIRS` × 1 or 2 legs, ordered by `scheduledMatches()`. With 4 players, some back-to-back matches can't be avoided. Seeds are ranked by RR wins, then head-to-head, then casual points.
 4. Bracket (`S.bracket`): double elimination with rounds in order `W1 → L1 + W2 → L2 → GF → GFR`. The podium is awarded `BRACKET_PTS` = 8/6/3/1.
-5. `_saveNight`: pushes a detailed record onto `S.history`. History, Scores and Stats are all calculated from `S.history`.
-   - A night's `scores` = casual + RR + bracket points.
-   - History currently picks each night's champion by highest `scores`.
+5. `_saveNight`: pushes a detailed record onto `S.history`, tagged with `seasonId` and `playerIds`. History, Scores and Stats are all calculated from `S.history`.
+   - **The night's winner is the bracket winner.** Placement comes from `nightPlacement()`, which is the `bracketPodium` order.
+   - `scores` (casual + RR + bracket points) is a separate stat. It never decides who won.
 
-**Exactly 4 players is assumed everywhere.** This includes `NUM_PLAYERS`/`PAIRS`, the `[0,0,0,0]` arrays, the bracket structure, and the 4 colors per theme in `THEMES[*].p`. History entries and Stats index players by slot (0–3), and Stats labels those slots with the *current* `S.players` names.
+**Seasons** (`js/logic/seasons.js` has the model docs at the top; `ui/setup.js` has the Season card).
+- **People vs. seats.** `S.roster` maps a permanent `pid` to a name. `S.playerIds` tells you who sits in slots 0–3 right now, in parallel with `S.players`. Inside a night or a bracket, code still uses slots. Translate a slot to a person with the night's `playerIds` or the season's `playerIds`, and always show names via `nameOf(pid)`, so that renames carry through history.
+- **Migration on every load.** `migrateSeasons()` runs inside `normalize()`. It is deterministic: existing players become `p1`–`p4`, and existing nights become Season `s1`. It also tags nights saved by an older app version with the current season. Nothing is written just because a migration ran.
+- **Season lifecycle.** `regular` → `playoffs` → `complete`.
+  - The regular season ends automatically when a season has `nights` nights, or manually with End Season.
+  - When it ends, `endRegularSeason()` freezes `standings` and sets `regularChampion`.
+  - Standings: placement points 4/3/2/1 per night, with ties broken by nights won, then night points, then bracket head-to-head.
+- **Playoff.** It is bracket-only and lives in `season.playoff`, not in a night. It uses the same `createBracket` and `advanceBracket` engine, with slots taken from `season.playerIds` and seeds in standings order (1v4, 2v3). Seeding is the only advantage. `completePlayoff()` sets `playoffChampion`.
+- **The playoff is independent of nights.** It can be run before, after or without one. The next season can start while the previous season's playoff is still pending. You can't start a night until the current season is `regular`. The roster can only change when a new season starts.
+- **Stats by person.** Stats aggregate by person through `viewPids()` and `remapNight()`, which translate each night's slots into one shared index space. Use those for any new cross-night stat instead of indexing by slot. Season career stats come from `careerSeasonStats()`.
 
-**Export/Import** (Setup tab): export writes `{exportedAt, version, players, history}`. Import merges history and skips nights already present (matched on `name|date`).
+**Exactly 4 players per night is assumed everywhere.** This includes `NUM_PLAYERS`/`PAIRS`, the bracket structure and the 4 colors per theme. A roster can have more than 4 people over time. Stats handle any number of people, with extra chart colors in `analytics.js`.
+
+**Export/Import** (Setup tab): v2 export writes `{exportedAt, version, players, playerIds, roster, seasons, currentSeasonId, history}`. Import merges history and skips nights already present (matched on `name|date`). A v2 file imported into an empty app is a full restore. Older v1 files still import, and their nights join the current season.

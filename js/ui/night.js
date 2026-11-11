@@ -1,9 +1,11 @@
 // Night tab: casual games, round robin, bracket hand-off, save night.
-import { S, save, emptyRR, emptyBracket } from '../store.js';
-import { casualPts, rrPts, rrSeeds, bracketPts, BRACKET_PTS } from '../logic/scoring.js';
+import { S, save, emptyRR, emptyBracket, currentSeason, seasonById, nameOf } from '../store.js';
+import { casualPts, rrPts, rrSeeds, bracketPts } from '../logic/scoring.js';
 import { buildRRMatches } from '../logic/schedule.js';
 import { createBracket } from '../logic/bracket.js';
-import { $, pName, rawName, esc, toast, openM, closeM, pickerHTML, markPicked } from './dom.js';
+import { $, pName, rawName, esc, toast, openM, closeM, pickerHTML, markPicked, dateStr } from './dom.js';
+import { championHTML, playoffSeasons, seasonResultHTML, lastCompletedPlayoff } from './bracket.js';
+import { STATUS, seasonNights, seasonStandings, regularSeasonComplete, endRegularSeason, playoffSeeds } from '../logic/seasons.js';
 
 export const GAME_TYPES = ['Cricket', 'Shanghai', 'Halve-It', 'Gotcha', 'Hammer Cricket', 'Killer', '301'];
 
@@ -14,11 +16,63 @@ resetAddForm();
 
 let _wi = null, _ww = null, _ri = null, _rw = null, _fmt = 1;
 
+// ── Season banner + playoff cards ────────────────────────────────────────────
+function seasonBannerHTML() {
+  const season = currentSeason();
+  const played = seasonNights(S.history, season.id).length;
+  let right;
+  if (season.status === STATUS.REGULAR) {
+    right = S.active ? `Night ${played + 1} of ${season.nights}` : `${played} of ${season.nights} nights played`;
+  } else if (season.status === STATUS.PLAYOFFS) {
+    right = 'Playoff pending';
+  } else {
+    right = 'Complete';
+  }
+  return `<div class="season-banner"><span class="season-name">${esc(season.name)}</span><span class="season-meta">${right}</span></div>`;
+}
+
+function playoffCardsHTML() {
+  return playoffSeasons().map(season => {
+    const champ = `<div class="info-row"><span>Regular season champion</span><span class="bold" style="color:var(--accent)">👑 ${esc(nameOf(season.regularChampion))}</span></div>`;
+    if (season.playoff && season.playoff.going) {
+      return `<div class="card playoff-card"><h3>🏆 ${esc(season.name)} Playoff</h3>${champ}
+        <p style="font-size:0.8rem;color:var(--muted);margin:10px 0;">Playoff in progress.</p>
+        <button class="btn btn-primary btn-full" onclick="window._goBracket()">OPEN PLAYOFF BRACKET</button></div>`;
+    }
+    const seeds = season.standings.map((r, i) => `<div class="info-row"><span><strong style="color:var(--accent)">#${i + 1}</strong>&nbsp;&nbsp;${esc(nameOf(r.pid))}</span><span style="color:var(--muted);font-size:0.78rem;">${r.placementPts} pts · ${r.nightsWon}W</span></div>`).join('');
+    return `<div class="card playoff-card"><h3>🏆 ${esc(season.name)} Playoff</h3>${champ}
+      <div class="lbl" style="margin-top:10px;">Seeds · double elim · 1v4, 2v3</div>${seeds}
+      <button class="btn btn-primary btn-full" style="margin-top:10px;" onclick="window._startPlayoff('${season.id}')">START PLAYOFF</button></div>`;
+  }).join('');
+}
+
+window._goBracket = () => document.querySelectorAll('.tab')[2].click();
+
+window._startPlayoff = seasonId => {
+  const season = seasonById(seasonId);
+  if (!season || season.status !== STATUS.PLAYOFFS) return;
+  season.playoff = createBracket(playoffSeeds(season));
+  save(); toast(`${season.name} playoff started! 🏆`);
+  window._goBracket();
+};
+
 export function renderNight() {
   const el = $('section-night');
-  if (!S.active) { el.innerHTML = `<div class="empty-state"><div class="big">🎯</div><p>Go to Setup, enter player names and night name,<br>then tap Start Night.</p></div>`; return; }
+  const top = seasonBannerHTML() + playoffCardsHTML();
+  if (!S.active) {
+    const season = currentSeason();
+    const msg = season.status === STATUS.REGULAR
+      ? 'Go to Setup, enter player names and night name,<br>then tap Start Night.'
+      : `${esc(season.name)} is over. Start the next season in Setup<br>(you can run the playoff before or after).`;
+    // Fresh off a playoff: keep the champions on screen until the next season gets going
+    const recent = lastCompletedPlayoff();
+    const showChamp = recent && (recent.id === season.id || seasonNights(S.history, season.id).length === 0);
+    const finalMsg = season.status === STATUS.COMPLETE ? `${esc(season.name)} is complete. Start the next season in Setup.` : msg;
+    el.innerHTML = top + (showChamp ? seasonResultHTML(recent) : '') + `<div class="empty-state"><div class="big">🎯</div><p>${finalMsg}</p></div>`;
+    return;
+  }
   const cPts = casualPts(S.games);
-  let html = `<div class="pts-bar">`;
+  let html = top + `<div class="pts-bar">`;
   (S.players || []).forEach((p, i) => html += `<div class="pts-pill">${esc(p)}: ${cPts[i]}pt${cPts[i] !== 1 ? 's' : ''}</div>`);
   html += `</div>`;
 
@@ -70,10 +124,6 @@ export function renderNight() {
     html += `<div style="padding:11px;text-align:center;font-size:0.82rem;color:var(--muted);background:var(--surface);border:1px solid var(--border);border-radius:8px;">Bracket in progress → Bracket tab</div>`;
   }
   el.innerHTML = html;
-}
-
-export function championHTML(podium) {
-  return `<div class="champ"><div class="champ-title">🏆 Champion</div><div class="champ-name">${pName(podium[0])}</div><div class="champ-sub">${(podium || []).map((idx, r) => `${r + 1}. ${pName(idx)} — ${BRACKET_PTS[r]}pts`).join('<br>')}</div></div>`;
 }
 
 function renderAddPanel(isOpen) {
@@ -219,6 +269,8 @@ window._saveNight = () => {
     rrMatches: (S.rr.matches || []).map(m => ({ p1: m.p1, p2: m.p2, winner: m.winner ?? null, skipped: m.skipped || false, leg: m.leg || 1 })),
     bracketMatches: (S.bracket.matches || []).map(m => ({ label: m.label, p1: m.p1 ?? null, p2: m.p2 ?? null, winner: m.winner ?? null, loser: m.loser ?? null, round: m.round })),
     bracketPodium: [...(S.bracket.podium || [])],
+    seasonId: S.currentSeasonId,
+    playerIds: [...S.playerIds],
   });
   S.active = false;
   S.games = [];
@@ -226,7 +278,16 @@ window._saveNight = () => {
   S.nightDate = '';
   S.rr = emptyRR();
   S.bracket = emptyBracket();
+  // Last night of the regular season → crown the champion and unlock the playoff
+  const season = currentSeason();
+  const seasonOver = season.status === STATUS.REGULAR && regularSeasonComplete(season, S.history);
+  if (seasonOver) endRegularSeason(season, S.history, dateStr());
   save();
+  if (seasonOver) {
+    toast(`${season.name} regular season over! 👑 ${nameOf(season.regularChampion)}`);
+    document.querySelectorAll('.tab')[0].click(); // playoff card is on the Night tab
+    return;
+  }
   toast('Night saved! 🎉');
   const histTab = document.querySelectorAll('.tab')[3];
   if (histTab) histTab.click();

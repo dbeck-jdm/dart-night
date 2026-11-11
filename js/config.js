@@ -23,4 +23,4 @@ export const ENV = ['prod', 'dev', 'local'].includes(requested) ? requested : (i
 export const DB_PATH = ENV === 'dev' ? 'dartnight-dev/state' : 'dartnight/state';
 export const LOCAL_RESET = params.has('reset');
 
-export const APP_VERSION = 'v1.3 · Built 2026-11-10';
+export const APP_VERSION = 'v2.0 · Seasons · Built 2026-11-10';

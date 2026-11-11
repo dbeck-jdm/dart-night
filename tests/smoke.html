@@ -102,6 +102,136 @@ try {
     ok(section('history').classList.contains('active') && section('history').querySelectorAll('.hist-card').length === 5, 'history tab shows 5');
   });
 
+  // ── Seasons ────────────────────────────────────────────────────────────────
+  const playBracket = async (getB, open) => {
+    for (let guard = 0; guard < 10 && !getB().done; guard++) {
+      const m = getB().matches.find(x => x.winner == null && x.p1 != null && x.p2 != null);
+      open(m.id); w._pickB(m.p1); w.confirmBracket();
+    }
+  };
+  const playNight = async name => {
+    tab('setup').click(); w._setNightName(name); w._startNight();
+    await until(() => stored().active, 'night active');
+    w._openFormatM(); w.pickFmt(1); w.confirmFormat();
+    for (let i = 0; i < 6; i++) { const m = stored().rr.matches[i]; w._openRRM(i); w._pickRR(m.p2); w.confirmRR(); }
+    w._startBracket();
+    await playBracket(() => stored().bracket, id => w._openBM(id));
+    w._saveNight();
+    await until(() => !stored().active, 'night saved');
+  };
+
+  await step('migrated data: Season 1 with 5 nights, tagged and with player ids', () => {
+    const s = stored();
+    ok(s.seasons?.length === 1 && s.seasons[0].id === 's1' && s.currentSeasonId === 's1', 'season 1');
+    ok(s.history.every(n => n.seasonId === 's1' && n.playerIds?.length === 4), 'nights tagged');
+    tab('night').click();
+    ok(section('night').querySelector('.season-banner')?.textContent.includes('5 of 8'), 'banner 5 of 8');
+  });
+
+  await step('history: night winner is the bracket winner, with "Most pts" note', () => {
+    tab('history').click();
+    const july = [...section('history').querySelectorAll('.hist-card')].find(c => c.textContent.includes('July Night'));
+    ok(july.querySelector('.hist-head').textContent.includes('🏆 Alice'), 'July winner Alice (bracket)');
+    ok(july.textContent.includes('Most pts'), 'Cara most points note');
+    ok(section('history').querySelector('.stbl'), 'season standings table');
+  });
+
+  await step('renaming a player carries through history', async () => {
+    tab('setup').click();
+    w._setPlayer(0, 'Alicia');
+    await until(() => stored().roster.p1.name === 'Alicia', 'rename saved', 4000);
+    tab('history').click();
+    ok(section('history').textContent.includes('Alicia') && !section('history').textContent.includes('Alice'), 'shows new name');
+    ok(stored().history[0].players[0] === 'Alice', 'saved night data unchanged');
+  });
+
+  await step('end regular season early → champion + playoff card', async () => {
+    tab('setup').click(); w._endSeason();
+    await until(() => stored().seasons[0].status === 'playoffs', 'status playoffs');
+    ok(stored().seasons[0].regularChampion, 'champion set');
+    ok(section('night').classList.contains('active') && section('night').querySelector('.playoff-card'), 'playoff card on night tab');
+  });
+
+  await step('cannot start a night until the next season starts', () => {
+    tab('setup').click(); w._setNightName('Too Early'); w._startNight();
+    ok(!stored().active, 'night not started');
+  });
+
+  await step('start Season 2 with a new player (playoff still pending)', async () => {
+    tab('setup').click();
+    const sel = d.getElementById('ns-sel-3'); sel.value = '__new'; sel.dispatchEvent(new Event('change'));
+    d.getElementById('ns-new-3').value = 'Eve';
+    d.getElementById('ns-nights').value = '2';
+    w._startSeason();
+    await until(() => stored().currentSeasonId === 's2', 'season 2');
+    const s = stored();
+    ok(s.players[3] === 'Eve' && s.roster[s.playerIds[3]].name === 'Eve', 'Eve seated');
+    ok(s.seasons[1].nights === 2 && s.seasons[0].status === 'playoffs', 's2 length 2, s1 playoff pending');
+    ok(section('night').querySelector('.playoff-card'), 'playoff card still shown');
+  });
+
+  await step('play the Season 1 playoff → playoff champion', async () => {
+    w._startPlayoff('s1');
+    await until(() => stored().seasons[0].playoff?.going, 'playoff going');
+    ok(section('bracket').classList.contains('active') && section('bracket').textContent.includes('Season 1 Playoff'), 'bracket tab shows playoff');
+    ok(!section('bracket').textContent.includes('Eve'), 'playoff uses Season 1 roster');
+    await playBracket(() => stored().seasons[0].playoff, id => w._openPM('s1', id));
+    const s1 = stored().seasons[0];
+    ok(s1.status === 'complete' && s1.playoffChampion && s1.playoffPodium.length === 4, 'season 1 complete');
+    const champName = s1.playoffChampion && stored().roster[s1.playoffChampion].name;
+    ok(d.getElementById('mChampion').classList.contains('open') && d.getElementById('mChampContent').textContent.includes(champName), 'champion popup names the winner');
+    w.closeM('mChampion');
+    await until(() => section('bracket').querySelector('.champ-season'), 'bracket tab keeps showing the result');
+    ok(section('bracket').textContent.includes('Season 1 Playoff · Final'), 'final bracket still visible');
+    ok(section('bracket').querySelector('.bmatch.final .final-banner'), 'championship game is highlighted');
+    tab('night').click();
+    ok(section('night').querySelector('.champ-season')?.textContent.includes(champName), 'night tab shows season champion');
+  });
+
+  await step('Season 2: two nights auto-end the regular season', async () => {
+    await playNight('S2 Night 1');
+    ok(stored().history[5].seasonId === 's2' && stored().history[5].playerIds.includes(stored().playerIds[3]), 'tagged s2 with Eve');
+    await playNight('S2 Night 2');
+    await until(() => stored().seasons[1].status === 'playoffs', 's2 playoffs');
+    ok(section('night').classList.contains('active') && section('night').querySelector('.playoff-card'), 'jumped to playoff card');
+  });
+
+  await step('history season picker shows each season separately', async () => {
+    tab('history').click();
+    const chips = [...section('history').querySelectorAll('.chip-row .pf-btn')];
+    ok(chips.length === 2, 'two season chips');
+    ok(section('history').querySelectorAll('.hist-card').length === 2, 'season 2 has 2 nights');
+    w._histSeason('s1');
+    ok(section('history').querySelectorAll('.hist-card').length === 5 && section('history').textContent.includes('Playoff Results'), 'season 1: 5 nights + playoff results');
+  });
+
+  await step('stats: season filter and all-time career table', async () => {
+    tab('analytics').click();
+    ok(section('analytics').textContent.includes('Season 2 Overview'), 'defaults to current season');
+    w._statsScope('all');
+    ok(section('analytics').textContent.includes('All-Time Overview') && section('analytics').textContent.includes('Playoff vs Seed'), 'all-time + seasons');
+    ok(section('analytics').textContent.includes('Eve'), 'Eve appears all-time');
+    await until(() => w.Chart.getChart(d.getElementById('chartSeasons')), 'season finish chart', 5000);
+    w._statsScope('s1');
+    ok(!section('analytics').textContent.includes('Eve'), 'Eve not in Season 1 stats');
+  });
+
+  await step('scores tab shows current season standings and all-time per person', () => {
+    tab('scores').click();
+    ok(section('scores').textContent.includes('Season 2 Standings') && section('scores').textContent.includes('All-Time (7 nights)'), 'sections');
+  });
+
+  await step('everything survives a reload (Firebase-shaped storage)', async () => {
+    const before = stored();
+    frame.src = '../index.html?env=local';
+    await new Promise(r => frame.addEventListener('load', r, { once: true }));
+    const d2 = frame.contentDocument;
+    await until(() => d2.getElementById('syncText').textContent === 'Live', 'reloaded');
+    const after = JSON.parse(frame.contentWindow.localStorage.getItem(stateKey));
+    ok(JSON.stringify(after.seasons.map(x => [x.id, x.status, x.playoffChampion])) === JSON.stringify(before.seasons.map(x => [x.id, x.status, x.playoffChampion])), 'seasons persisted');
+    ok(d2.querySelector('#section-night .playoff-card'), 'season 2 playoff card after reload');
+  });
+
   await step('no uncaught errors', () => ok(errors.length === 0, errors.join(' | ')));
 } catch (e) { /* recorded above */ }
 

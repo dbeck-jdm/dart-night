@@ -24,8 +24,8 @@ export const openM = id => $(id).classList.add('open');
 export const closeM = id => $(id).classList.remove('open');
 
 // Render a winner-picker list into a modal; calls onPick(idx) on tap.
-export function pickerHTML(prefix, idxs, handler) {
-  return idxs.map(idx => `<div class="ppick" id="${prefix}${idx}" onclick="window.${handler}(${idx})"><div class="ppick-name">${pName(idx)}</div><div class="chk">✓</div></div>`).join('');
+export function pickerHTML(prefix, idxs, handler, nameFn = pName) {
+  return idxs.map(idx => `<div class="ppick" id="${prefix}${idx}" onclick="window.${handler}(${idx})"><div class="ppick-name">${nameFn(idx)}</div><div class="chk">✓</div></div>`).join('');
 }
 export function markPicked(containerId, prefix, idx) {
   document.querySelectorAll(`#${containerId} .ppick`).forEach(e => e.classList.remove('sel'));

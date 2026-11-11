@@ -4,16 +4,20 @@ import { casualPts, rrPts, rrSeeds, bracketPts, h2hWins, PAIRS } from '../js/log
 import { buildRRMatches } from '../js/logic/schedule.js';
 import { createBracket, advanceBracket } from '../js/logic/bracket.js';
 import { firebaseShape } from '../js/db/local.js';
-import { normalize, fresh } from '../js/store.js';
+import { normalize, fresh, applyImport } from '../js/store.js';
+import { nightPlacement, pointsLeaderIfDifferent, seasonStandings, regularSeasonComplete, makeSeason, endRegularSeason, playoffSeeds, completePlayoff, careerSeasonStats, remapNight, viewPids } from '../js/logic/seasons.js';
 
 const results = [];
 const test = async (name, fn) => {
   try { await fn(); results.push({ name, ok: true }); }
   catch (e) { results.push({ name, ok: false, err: e.message }); }
 };
+// Deep equality that ignores object key order (Firebase does not preserve it)
+const canon = v => JSON.stringify(v, (k, x) => x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.keys(x).sort().map(key => [key, x[key]])) : x);
+const clip = s => s.length > 300 ? s.slice(0, 300) + '…' : s;
 const eq = (a, b, msg = '') => {
-  const ja = JSON.stringify(a), jb = JSON.stringify(b);
-  if (ja !== jb) throw new Error(`${msg} expected ${jb}, got ${ja}`);
+  const ja = canon(a), jb = canon(b);
+  if (ja !== jb) throw new Error(`${msg} expected ${clip(jb)}, got ${clip(ja)}`);
 };
 const ok = (v, msg) => { if (!v) throw new Error(msg || 'expected truthy'); };
 
@@ -112,12 +116,120 @@ await test('normalize restores containers dropped by Firebase', () => {
   eq(s.players.length, 4);
 });
 
-await test('normalize keeps the fixture history intact', () => {
-  const s = normalize(JSON.parse(JSON.stringify(fixture)));
-  eq(s.history, fixture.history);
+// ── Seasons ──────────────────────────────────────────────────────────────────
+const migrated = () => normalize(JSON.parse(JSON.stringify(fixture)));
+
+await test('migration: players get permanent ids, nights become Season 1', () => {
+  const s = migrated();
+  eq(s.playerIds, ['p1', 'p2', 'p3', 'p4']);
+  eq(Object.values(s.roster).map(p => p.name), ['Alice', 'Bob', 'Cara', 'Dan']);
+  eq(s.seasons.length, 1);
+  eq([s.seasons[0].id, s.seasons[0].status, s.seasons[0].nights, s.seasons[0].startDate], ['s1', 'regular', 8, 'Fri, Apr 24, 2026']);
+  eq(s.currentSeasonId, 's1');
+  ok(s.history.every(n => n.seasonId === 's1'), 'all nights tagged s1');
+  ok(s.history.every(n => JSON.stringify(n.playerIds) === '["p1","p2","p3","p4"]'), 'night playerIds');
+});
+
+await test('migration is idempotent and survives a Firebase round trip', () => {
+  const once = migrated();
+  const again = normalize(JSON.parse(JSON.stringify(firebaseShape(once))));
+  eq(again.roster, once.roster); eq(again.seasons, once.seasons); eq(again.history, once.history);
+  eq(again.playerIds, once.playerIds); eq(again.currentSeasonId, once.currentSeasonId);
+});
+
+await test('migration keeps original night data untouched (only adds fields)', () => {
+  const s = migrated();
+  s.history.forEach((n, i) => {
+    const { seasonId, playerIds, ...rest } = n;
+    eq(rest, fixture.history[i]);
+  });
+});
+
+await test('night winner is the bracket winner, not the points leader', () => {
+  const july = nights.find(n => n.name === 'July Night');
+  eq(july.bracketPodium[0], 0); eq(july.scores, [10, 2, 11, 4]);
+  eq(nightPlacement(july), [0, 2, 3, 1]);
+  eq(pointsLeaderIfDifferent(july), 2);
+  eq(pointsLeaderIfDifferent(nights.find(n => n.name === 'April Night')), null);
+});
+
+await test('Season 1 standings from the fixture nights (placement points 4/3/2/1)', () => {
+  const s = migrated();
+  const st = seasonStandings(s.seasons[0], s.history);
+  eq(st.map(r => [r.pid, r.placementPts, r.nightsWon, r.totalPts, r.nightsPlayed]),
+    [['p1', 14, 2, 48, 4], ['p3', 13, 2, 35, 4], ['p4', 8, 0, 20, 4], ['p2', 5, 0, 14, 4]]);
+  ok(!regularSeasonComplete(s.seasons[0], s.history), '4 of 8 nights');
+});
+
+await test('standings tie-break: placement → nights won → points → bracket head-to-head', () => {
+  const season = makeSeason(1, ['a', 'b', 'c', 'd'], '');
+  const night = (podium, scores, gfWinner, gfLoser) => ({ seasonId: 's1', playerIds: ['a', 'b', 'c', 'd'], players: ['A', 'B', 'C', 'D'], bracketPodium: podium, scores, bracketMatches: [{ round: 'GF', winner: gfWinner, loser: gfLoser }] });
+  // a and b swap 1st/2nd, same points → tied on everything except who won their bracket meetings (a won twice)
+  const hist = [night([0, 1, 2, 3], [5, 5, 1, 1], 0, 1), night([1, 0, 2, 3], [5, 5, 1, 1], 1, 0), night([0, 1, 3, 2], [5, 5, 1, 1], 0, 1), night([1, 0, 3, 2], [5, 5, 1, 1], 1, 0)];
+  hist[3].bracketMatches.push({ round: 'W2', winner: 0, loser: 1 });
+  eq(seasonStandings(season, hist).slice(0, 2).map(r => r.pid), ['a', 'b']);
+  // more nights won beats equal placement points
+  const h2 = [night([0, 2, 1, 3], [1, 1, 1, 1], 0, 2), night([0, 2, 1, 3], [1, 1, 1, 1], 0, 2), night([1, 2, 3, 0], [1, 1, 1, 1], 1, 2)];
+  const st = seasonStandings(season, h2);
+  ok(st.find(r => r.pid === 'a').rank < st.find(r => r.pid === 'c').rank, 'a ahead');
+});
+
+await test('full season: end regular season → seeded playoff → champions', () => {
+  const s = migrated();
+  const season = s.seasons[0];
+  endRegularSeason(season, s.history, 'today');
+  eq(season.status, 'playoffs'); eq(season.regularChampion, 'p1');
+  eq(season.standings.map(r => r.pid), ['p1', 'p3', 'p4', 'p2']);
+  const seeds = playoffSeeds(season);
+  eq(seeds, [0, 2, 3, 1]);
+  season.playoff = createBracket(seeds);
+  eq(season.playoff.matches.map(m => [m.p1, m.p2]), [[0, 1], [2, 3]], '1v4 and 2v3');
+  const play = (round, w) => advanceBracket(season.playoff, season.playoff.matches.find(m => m.round === round && m.winner == null).id, w);
+  play('W1', 1); play('W1', 2); play('L1', 0); play('W2', 2); play('L2', 0); play('GF', 2); // #2 seed (Cara) wins
+  ok(season.playoff.done, 'playoff done');
+  completePlayoff(season, 'later');
+  eq(season.status, 'complete'); eq(season.playoffChampion, 'p3'); eq(season.playoffPodium, ['p3', 'p1', 'p2', 'p4']);
+  const career = careerSeasonStats(s.seasons, s.history);
+  eq([career.p1.regularTitles, career.p1.playoffTitles, career.p3.playoffTitles, career.p3.doubles], [1, 0, 1, 0]);
+  eq(career.p1.bestSeason, { season: 1, rank: 1 });
+  eq(career.p2.avgPlayoffVsSeed, 1, 'Bob seeded 4th, finished 3rd');
+});
+
+await test('remapNight translates slots when the roster order differs', () => {
+  const n = { playerIds: ['x', 'y', 'z', 'w'], players: ['X', 'Y', 'Z', 'W'], scores: [1, 2, 3, 4], bracketPodium: [3, 2, 1, 0], games: [{ players: [0, 1, 2, 3], winnerId: 3 }], rrMatches: [{ p1: 0, p2: 3, winner: 3 }], bracketMatches: [] };
+  const r = remapNight(n, ['w', 'z', 'y', 'x', 'extra']);
+  eq(r.scores, [4, 3, 2, 1, 0]); eq(r.bracketPodium, [0, 1, 2, 3]); eq(r.games[0].winnerId, 0);
+  eq([r.rrMatches[0].p1, r.rrMatches[0].p2, r.rrMatches[0].winner], [3, 0, 0]); eq(r.present, [3, 2, 1, 0]);
+  eq(viewPids([n], ['w', 'q']), ['w', 'x', 'y', 'z']);
 });
 
 // ── Report ───────────────────────────────────────────────────────────────────
+
+await test('import a v1 export after Reset All: real people, not the Player 1–4 placeholders', () => {
+  const s = normalize(fresh());
+  const v1 = { exportedAt: 'x', version: '1.x', players: fixture.players, history: JSON.parse(JSON.stringify(fixture.history)) };
+  eq(applyImport(s, v1).length, 4);
+  const pick = x => canon({ roster: x.roster, playerIds: x.playerIds, players: x.players, seasons: x.seasons, cur: x.currentSeasonId, nights: x.history.map(n => [n.seasonId, n.playerIds]) });
+  eq(pick(s), pick(migrated()), 'same as a first load of the seasons version');
+  eq(seasonStandings(s.seasons[0], s.history).map(r => s.roster[r.pid].name), ['Alice', 'Cara', 'Dan', 'Bob']);
+});
+
+await test('import merges into existing data and skips nights already present', () => {
+  const s = migrated();
+  const v1 = { players: fixture.players, history: JSON.parse(JSON.stringify(fixture.history)) };
+  eq(applyImport(s, v1).length, 0);
+  eq(s.history.length, 4);
+});
+
+await test('self-heal: a regular season pointing at placeholder people is realigned', () => {
+  const s = migrated();
+  s.roster.p9 = { id: 'p9', name: 'Player 1' };
+  s.seasons[0].playerIds = ['p9', 'p2', 'p3', 'p4'];
+  s.playerIds = ['p9', 'p2', 'p3', 'p4']; s.players = ['Player 1', 'Bob', 'Cara', 'Dan'];
+  normalize(s);
+  eq(s.seasons[0].playerIds, ['p1', 'p2', 'p3', 'p4']);
+  eq(s.players, ['Alice', 'Bob', 'Cara', 'Dan']);
+});
 const failed = results.filter(r => !r.ok);
 const out = document.getElementById('results');
 out.textContent = results.map(r => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.ok ? '' : '\n      ' + r.err}`).join('\n')
